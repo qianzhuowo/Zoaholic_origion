@@ -1,7 +1,7 @@
 [project]
-name = "uni-api"
+name = "Zoaholic"
 version = "1.7.1"
-description = "Add your description here"
+description = "A LLM API gateway base on Uni-API."
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [

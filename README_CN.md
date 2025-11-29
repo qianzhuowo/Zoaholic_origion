@@ -1,25 +1,17 @@
-# uni-api
+# Zoaholic
 
-<p align="center">
-  <a href="https://t.me/uni_api">
-    <img src="https://img.shields.io/badge/Join Telegram Group-blue?&logo=telegram">
-  </a>
-   <a href="https://hub.docker.com/repository/docker/yym68686/uni-api">
-    <img src="https://img.shields.io/docker/pulls/yym68686/uni-api?color=blue" alt="docker pull">
-  </a>
-</p>
 
 [英文](./README.md) | [中文](./README_CN.md)
 
 ## 介绍
 
-如果个人使用的话，one/new-api 过于复杂，有很多个人不需要使用的商用功能，如果你不想要复杂的前端界面，又想要支持的模型多一点，可以试试 uni-api。这是一个统一管理大模型 API 的项目，可以通过一个统一的API 接口调用多种不同提供商的服务，统一转换为 OpenAI 格式，支持负载均衡。目前支持的后端服务有：OpenAI、Anthropic、Gemini、Vertex、Azure、AWS、xai、Cohere、Groq、Cloudflare、OpenRouter、[302.AI](https://share.302.ai/IRQYs0) 等。
+Zoaholic 是一个基于 uni-api 二次开发的统一大模型 API 网关。面向高客制化的复杂需求，去除new-api复杂的商业功能。它通过一个统一的 API 接口调用多种不同提供商的服务，统一转换为 OpenAI 格式，支持负载均衡。目前支持的后端服务有：OpenAI、Anthropic、Gemini、Vertex等，同时允许以插件的形式注册新的后端服务。
 
 ## ✨ 特性
 
 - 无前端，纯配置文件配置 API 渠道。只要写一个文件就能运行起一个属于自己的 API 站，文档有详细的配置指南，小白友好。
 - 统一管理多个后端服务，支持 OpenAI、Deepseek、OpenRouter 等其他 API 是 OpenAI 格式的提供商。支持 OpenAI Dalle-3 图像生成。
-- 同时支持 Anthropic、Gemini、Vertex AI、Azure、AWS、xai、Cohere、Groq、Cloudflare、[302.AI](https://share.302.ai/IRQYs0)。Vertex 同时支持 Claude 和 Gemini API。
+- 同时支持 Anthropic、Gemini、Vertex AI等。Vertex 同时支持 Claude 和 Gemini API。
 - 支持 OpenAI、 Anthropic、Gemini、Vertex、Azure、AWS、xai 原生 tool use 函数调用。
 - 支持 OpenAI、Anthropic、Gemini、Vertex、Azure、AWS、xai 原生识图 API。
 - 支持四种负载均衡。
@@ -37,14 +29,14 @@
 
 ## 使用方法
 
-启动 uni-api 必须使用配置文件，有两种方式可以启动配置文件：
+启动 Zoaholic 必须使用配置文件，有两种方式可以启动配置文件：
 
-1. 第一种是使用 `CONFIG_URL` 环境变量填写配置文件 URL，uni-api启动时会自动下载。
+1. 第一种是使用 `CONFIG_URL` 环境变量填写配置文件 URL，Zoaholic 启动时会自动下载。
 2. 第二种就是挂载名为 `api.yaml` 的配置文件到容器内。
 
-### 方法一：挂载 `api.yaml` 配置文件启动 uni-api
+### 方法一：挂载 `api.yaml` 配置文件启动 Zoaholic
 
-必须事先填写完成配置文件才能启动 `uni-api`，必须使用名为 `api.yaml` 的配置文件才能启动 `uni-api`，可以配置多个模型，每个模型可以配置多个后端服务，支持负载均衡。下面是最小可运行的 `api.yaml` 配置文件的示例：
+必须事先填写完成配置文件才能启动 `Zoaholic`，必须使用名为 `api.yaml` 的配置文件才能启动 `Zoaholic`，可以配置多个模型，每个模型可以配置多个后端服务，支持负载均衡。下面是最小可运行的 `api.yaml` 配置文件的示例：
 
 ```yaml
 providers:
@@ -276,323 +268,10 @@ preferences: # 全局配置
     default: 1,2
 ```
 
-挂载配置文件并启动 uni-api docker 容器：
 
-```bash
-docker run --user root -p 8001:8000 --name uni-api -dit \
--v ./api.yaml:/home/api.yaml \
-yym68686/uni-api:latest
-```
+## Zoaholic 前端
 
-### 方法二：使用 `CONFIG_URL` 环境变量启动 uni-api
-
-按照方法一写完配置文件后，上传到云端硬盘，获取文件的直链，然后使用 `CONFIG_URL` 环境变量启动 uni-api docker 容器：
-
-```bash
-docker run --user root -p 8001:8000 --name uni-api -dit \
--e CONFIG_URL=http://file_url/api.yaml \
-yym68686/uni-api:latest
-```
-
-## 环境变量
-
-- CONFIG_URL: 配置文件的下载地址，可以是本地文件，也可以是远程文件，选填。
-- DEBUG: 是否开启调试模式，默认为 false，选填，开启后会打印更多日志，用于提交 issue 时使用。
-- TIMEOUT: 请求超时时间，默认为 100 秒，超时时间可以控制当一个渠道没有响应时，切换下一个渠道需要的时间，选填。
-- DISABLE_DATABASE: 是否禁用数据库，默认为 false，选填。
-- DB_TYPE: 数据库类型，默认为 sqlite，选填。支持 sqlite 和 postgres。
-
-当 DB_TYPE 为 postgres 时，需要设置以下环境变量：
-
-- DB_USER: 数据库用户名，默认为 postgres，选填。
-- DB_PASSWORD: 数据库密码，默认为 mysecretpassword，选填。
-- DB_HOST: 数据库主机，默认为 localhost，选填。
-- DB_PORT: 数据库端口，默认为 5432，选填。
-- DB_NAME: 数据库名称，默为 postgres，选填。
-
-## Koyeb 远程部署
-
-点击下面的按钮可以自动使用构建好的 uni-api docker 镜像一键部署：
-
-[![Deploy to Koyeb](https://www.koyeb.com/static/images/deploy/button.svg)](https://app.koyeb.com/deploy?name=uni-api&type=docker&image=docker.io%2Fyym68686%2Funi-api%3Alatest&instance_type=free&regions=was&instances_min=0&env%5BCONFIG_URL%5D=)
-
-让 Koyeb 读取配置文件有两种方法，选一种即可：
-
-1. 填写环境变量 `CONFIG_URL` 为配置文件的直链
-
-2. 直接粘贴 api.yaml 文件内容，如果直接把 api.yaml 文件内容粘贴到 Koyeb 环境变量设置的 file 里面，其中粘贴到文本框后，在下方 path 输入 api.yaml 路径为 `/home/api.yaml`。
-
-最后点击 Deploy 部署按钮。
-
-## Ubuntu 部署
-
-在仓库 Releases 找到对应的二进制文件最新版本，例如名为 uni-api-linux-x86_64-0.0.99.pex 的文件。在服务器下载二进制文件并运行：
-
-```bash
-wget https://github.com/yym68686/uni-api/releases/download/v0.0.99/uni-api-linux-x86_64-0.0.99.pex
-chmod +x uni-api-linux-x86_64-0.0.99.pex
-./uni-api-linux-x86_64-0.0.99.pex
-```
-
-## serv00 远程部署（FreeBSD 14.0）
-
-首先登录面板，Additional services 里面点击选项卡 Run your own applications 开启允许运行自己的程序，然后到面板 Port reservation 去随便开一个端口。
-
-如果没有自己的域名，去面板 WWW websites 删掉默认给的域名，再新建一个域名 Domain 为刚才删掉的域名，点击 Advanced settings 后设置 Website type 为 Proxy 域名，Proxy port 指向你刚才开的端口，不要选中 Use HTTPS。
-
-ssh 登陆到 serv00 服务器，执行下面的命令：
-
-```bash
-git clone --depth 1 -b main --quiet https://github.com/yym68686/uni-api.git
-cd uni-api
-python -m venv uni-api
-source uni-api/bin/activate
-pip install --upgrade pip
-cpuset -l 0 pip install -vv -r pyproject.toml
-```
-
-从开始安装到安装完成需要等待10分钟，安装完成后执行下面的命令：
-
-```bash
-tmux new -A -s uni-api
-source uni-api/bin/activate
-export CONFIG_URL=http://file_url/api.yaml
-export DISABLE_DATABASE=true
-# 修改端口，xxx 为端口，自行修改，对应刚刚在面板 Port reservation 开的端口
-sed -i '' 's/port=8000/port=xxx/' main.py
-sed -i '' 's/reload=True/reload=False/' main.py
-python main.py
-```
-
-使用 ctrl+b d 退出 tmux，即可让程序后台运行。此时就可以在其他聊天客户端使用 uni-api 了。curl 测试脚本：
-
-```bash
-curl -X POST https://xxx.serv00.net/v1/chat/completions \
--H 'Content-Type: application/json' \
--H 'Authorization: Bearer sk-xxx' \
--d '{"model": "gpt-4o","messages": [{"role": "user","content": "你好"}]}'
-```
-
-参考文档：
-
-https://docs.serv00.com/Python/
-
-https://linux.do/t/topic/201181
-
-https://linux.do/t/topic/218738
-
-## Docker 本地部署
-
-Start the container
-
-```bash
-docker run --user root -p 8001:8000 --name uni-api -dit \
--e CONFIG_URL=http://file_url/api.yaml \ # 如果已经挂载了本地配置文件，不需要设置 CONFIG_URL
--v ./api.yaml:/home/api.yaml \ # 如果已经设置 CONFIG_URL，不需要挂载配置文件
--v ./uniapi_db:/home/data \ # 如果不想保存统计数据，不需要挂载该文件夹
-yym68686/uni-api:latest
-```
-
-Or if you want to use Docker Compose, here is a docker-compose.yml example:
-
-```yaml
-services:
-  uni-api:
-    container_name: uni-api
-    image: yym68686/uni-api:latest
-    environment:
-      - CONFIG_URL=http://file_url/api.yaml # 如果已经挂载了本地配置文件，不需要设置 CONFIG_URL
-    ports:
-      - 8001:8000
-    volumes:
-      - ./api.yaml:/home/api.yaml # 如果已经设置 CONFIG_URL，不需要挂载配置文件
-      - ./uniapi_db:/home/data # 如果不想保存统计数据，不需要挂载该文件夹
-```
-
-CONFIG_URL 就是可以自动下载远程的配置文件。比如你在某个平台不方便修改配置文件，可以把配置文件传到某个托管服务，可以提供直链给 uni-api 下载，CONFIG_URL 就是这个直链。如果使用本地挂载的配置文件，不需要设置 CONFIG_URL。CONFIG_URL 是在不方便挂载配置文件的情况下使用。
-
-Run Docker Compose container in the background
-
-```bash
-docker-compose pull
-docker-compose up -d
-```
-
-Docker build
-
-```bash
-docker buildx build --platform linux/amd64,linux/arm64 -t yym68686/uni-api:latest --push .
-docker pull yym68686/uni-api:latest
-
-# test image
-docker buildx build --platform linux/amd64,linux/arm64 -t yym68686/uni-api:test -f Dockerfile.debug --push .
-docker pull yym68686/uni-api:test
-```
-
-One-Click Restart Docker Image
-
-```bash
-set -eu
-docker pull yym68686/uni-api:latest
-docker rm -f uni-api
-docker run --user root -p 8001:8000 -dit --name uni-api \
--e CONFIG_URL=http://file_url/api.yaml \
--v ./api.yaml:/home/api.yaml \
--v ./uniapi_db:/home/data \
-yym68686/uni-api:latest
-docker logs -f uni-api
-```
-
-RESTful curl test
-
-```bash
-curl -X POST http://127.0.0.1:8000/v1/chat/completions \
--H "Content-Type: application/json" \
--H "Authorization: Bearer ${API}" \
--d '{"model": "gpt-4o","messages": [{"role": "user", "content": "Hello"}],"stream": true}'
-```
-
-pex linux 打包：
-
-```bash
-VERSION=$(cat VERSION)
-pex -D . -r pyproject.toml \
-    -c uvicorn \
-    --inject-args 'main:app --host 0.0.0.0 --port 8000' \
-    --platform linux_x86_64-cp-3.10.12-cp310 \
-    --interpreter-constraint '==3.10.*' \
-    --no-strip-pex-env \
-    -o uni-api-linux-x86_64-${VERSION}.pex
-```
-
-macos 打包：
-
-```bash
-VERSION=$(cat VERSION)
-pex -r pyproject.toml \
-    -c uvicorn \
-    --inject-args 'main:app --host 0.0.0.0 --port 8000' \
-    -o uni-api-macos-arm64-${VERSION}.pex
-```
-
-## HuggingFace Space 远程部署
-
-WARN: 请注意远程部署的密钥泄露风险，请勿滥用服务以避免封号
-Space 仓库需要提供三个文件  `Dockerfile`、`README.md`、`entrypoint.sh`
-运行程序还需要 api.yaml（我以全量放在机密中为例，也可以HTTP下载的方式实现），访问匹配、模型和渠道配置等均在配置文件中
-操作步骤
-1. 访问 https://huggingface.co/new-space 新建一个sapce，要public库，开源协议/名字/描述等随便
-2. 访问你的space的file，URL是 https://huggingface.co/spaces/your-name/your-space-name/tree/main,把下面三个文件上传（`Dockerfile`、`README.md`、`entrypoint.sh`）
-3. 访问你的space的setting，URL是 https://huggingface.co/spaces/your-name/your-space-name/settings 找到 Secrets 新建机密 `API_YAML_CONTENT`（注意大写），把你的api.yaml在本地写好后直接复制进去，UTF-8编码
-4. 继续在设置中，找到 Factory rebuild 让它重新构建，如果你修改机密或者文件或者手动重启Sapce等情况均有可能导致卡住无log，此时就用这个方法解决
-5. 在设置最右上角有三个点的按钮，找到 Embed this Space 获取Space的公网链接，格式 https://(your-name)-(your-space-name).hf.space 去掉括号
-
-相关的文件代码如下
-```Dockerfile
-# Dockerfile,记得删除本行
-# 使用uni-api官方镜像
-FROM yym68686/uni-api:latest
-
-# 创建数据目录并设置权限
-RUN mkdir -p /data && chown -R 1000:1000 /data
-
-# 设置用户和工作目录
-RUN useradd -m -u 1000 user
-USER user
-ENV HOME=/home/user \
-    PATH=/home/user/.local/bin:$PATH \
-    DISABLE_DATABASE=true
-
-# 复制入口点脚本
-COPY --chown=user entrypoint.sh /home/user/entrypoint.sh
-RUN chmod +x /home/user/entrypoint.sh
-
-# 确保/home目录可写（这很重要！）
-USER root
-RUN chmod 777 /home
-USER user
-
-# 设置工作目录
-WORKDIR /home/user
-
-# 入口点
-ENTRYPOINT ["/home/user/entrypoint.sh"]
-```
-
-```markdown
-# README.md,覆盖掉默认的,记得删除本行
----
-title: Uni API
-emoji: 🌍
-colorFrom: gray
-colorTo: yellow
-sdk: docker
-app_port: 8000
-pinned: false
-license: gpl-3.0
----
-```
-```shell
-# entrypoint.sh,记得删除本行
-#!/bin/sh
-set -e
-CONFIG_FILE_PATH="/home/api.yaml"  # 注意这里改成/home/api.yaml
-
-echo "DEBUG: Entrypoint script started."
-
-# 检查Secret是否存在
-if [ -z "$API_YAML_CONTENT" ]; then
-  echo "ERROR: Secret 'API_YAML_CONTENT' is不存在或为空。退出。"
-  exit 1
-else
-  echo "DEBUG: API_YAML_CONTENT secret found. Preparing to write..."
-  printf '%s\n' "$API_YAML_CONTENT" > "$CONFIG_FILE_PATH"
-  echo "DEBUG: Attempted to write to $CONFIG_FILE_PATH."
-
-  if [ -f "$CONFIG_FILE_PATH" ]; then
-    echo "DEBUG: File $CONFIG_FILE_PATH created successfully. Size: $(wc -c < "$CONFIG_FILE_PATH") bytes."
-    # 显示文件的前几行进行调试（注意不要显示敏感信息）
-    echo "DEBUG: First few lines (without sensitive info):"
-    head -n 3 "$CONFIG_FILE_PATH" | grep -v "api:" | grep -v "password"
-  else
-    echo "ERROR: File $CONFIG_FILE_PATH was NOT created."
-    exit 1
-  fi
-fi
-
-echo "DEBUG: About to execute python main.py..."
-# 不需要使用--config参数，因为程序有默认路径
-cd /home
-exec python main.py "$@"
-```
-
-## uni-api 前端部署
-
-uni-api 的 web 前端可以自行部署，地址：https://github.com/yym68686/uni-api-web
-
-也可以使用我提前部署好的前端，地址：https://uni-api-web.pages.dev/
-
-## 赞助商
-
-我们感谢以下赞助商的支持：
-<!-- ¥2050 -->
-- @PowerHunter：¥2000
-- @IM4O4: ¥100
-- @ioi：¥50
-
-## 如何赞助我们
-
-如果您想支持我们的项目，您可以通过以下方式赞助我们：
-
-1. [PayPal](https://www.paypal.me/yym68686)
-
-2. [USDT-TRC20](https://pb.yym68686.top/~USDT-TRC20)，USDT-TRC20 钱包地址：`TLFbqSv5pDu5he43mVmK1dNx7yBMFeN7d8`
-
-3. [微信](https://pb.yym68686.top/~wechat)
-
-4. [支付宝](https://pb.yym68686.top/~alipay)
-
-感谢您的支持！
+相比uni-api，本项目的着重表现就是内置了一个简单的前端，可以可视化方便的编辑功能。
 
 ## 常见问题
 
@@ -710,40 +389,6 @@ api_keys:
 
 koyeb 部署 uni-api 的 api.yaml 默认是 0644 权限，uni-api 没有写权限。当 uni-api 尝试获取 model 字段时，会修改配置文件，此时会报错。控制台输入 chmod 0777 api.yaml 赋予 uni-api 写权限即可。
 
-## 压测
-
-压测工具：[locust](https://locust.io/)
-
-压测脚本：[test/locustfile.py](test/locustfile.py)
-
-mock_server：[test/mock_server.go](test/mock_server.go)
-
-启动压测：
-
-```bash
-go run test/mock_server.go
-# 100 10 120s
-locust -f test/locustfile.py
-python main.py
-```
-
-压测结果：
-
-| Type | Name | 50% | 66% | 75% | 80% | 90% | 95% | 98% | 99% | 99.9% | 99.99% | 100% | # reqs |
-|------|------|-----|-----|-----|-----|-----|-----|-----|-----|--------|---------|------|--------|
-| POST | /v1/chat/completions (stream) | 18 | 23 | 29 | 35 | 83 | 120 | 140 | 160 | 220 | 270 | 270 | 6948 |
-| | Aggregated | 18 | 23 | 29 | 35 | 83 | 120 | 140 | 160 | 220 | 270 | 270 | 6948 |
-
-## 安全
-
-我们非常重视项目的安全性。如果您发现任何安全漏洞，请通过 [yym68686@outlook.com](mailto:yym68686@outlook.com) 与我们联系。
-
 **致谢 (Acknowledgments):**
 
-*   我们特别感谢 **@ryougishiki214** 报告了一个安全问题，该问题已在 [v1.5.1](https://github.com/yym68686/uni-api/releases/tag/v1.5.1) 版本中得到解决。
-
-## ⭐ Star 历史
-
-<a href="https://github.com/yym68686/uni-api/stargazers">
-        <img width="500" alt="Star History Chart" src="https://api.star-history.com/svg?repos=yym68686/uni-api&type=Date">
-</a>
+*   感谢[Uni-API](https://github.com/yym68686/uni-api)项目为本项目做下的技术基础，这使得我们可以快速的二次开发添加功能。

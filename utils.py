@@ -44,6 +44,8 @@ class InMemoryRateLimiter:
         self.requests[key].append(now)
         return False
 
+from ruamel.yaml.scalarstring import DoubleQuotedScalarString
+
 yaml = YAML()
 yaml.preserve_quotes = True
 yaml.indent(mapping=2, sequence=4, offset=2)
@@ -51,9 +53,29 @@ yaml.indent(mapping=2, sequence=4, offset=2)
 API_YAML_PATH = "./api.yaml"
 yaml_error_message = None
 
+def _quote_colon_strings(obj):
+    """
+    递归处理配置数据，对包含冒号的纯字符串进行引号包裹，
+    避免 YAML 将其解析为键值对。
+    """
+    if isinstance(obj, str):
+        # 如果字符串包含冒号，使用双引号包裹
+        if ':' in obj:
+            return DoubleQuotedScalarString(obj)
+        return obj
+    elif isinstance(obj, dict):
+        return {k: _quote_colon_strings(v) for k, v in obj.items()}
+    elif isinstance(obj, list):
+        return [_quote_colon_strings(item) for item in obj]
+    else:
+        return obj
+
 def save_api_yaml(config_data):
+    # 深拷贝配置数据并处理包含冒号的字符串
+    import copy
+    processed_data = _quote_colon_strings(copy.deepcopy(config_data))
     with open(API_YAML_PATH, "w", encoding="utf-8") as f:
-        yaml.dump(config_data, f)
+        yaml.dump(processed_data, f)
 
 async def update_config(config_data, use_config_url=False):
     for index, provider in enumerate(config_data['providers']):
@@ -154,6 +176,12 @@ async def update_config(config_data, use_config_url=False):
 
     api_list = [item["api"] for item in api_keys_db]
     # logger.info(json.dumps(config_data, indent=4, ensure_ascii=False))
+
+    # 管理阶段：每次更新内存中的 config（非 CONFIG_URL 模式）时，同步写回本地 api.yaml，
+    # 这样 /v1/api_config/update 等管理接口修改后的配置可以持久化，供其他组件/环境复用。
+    if not use_config_url:
+        save_api_yaml(config_data)
+
     return config_data, api_keys_db, api_list
 
 # 读取YAML配置文件
@@ -441,7 +469,7 @@ def post_all_models(api_index, config, api_list, models_list):
                                     "id": model_item,
                                     "object": "model",
                                     "created": 1720524448858,
-                                    "owned_by": "uni-api"
+                                    "owned_by": "Zoaholic"
                                 }
                                 all_models.append(model_info)
                     else:
@@ -456,7 +484,7 @@ def post_all_models(api_index, config, api_list, models_list):
                                         "id": model_item,
                                         "object": "model",
                                         "created": 1720524448858,
-                                        "owned_by": "uni-api"
+                                        "owned_by": "Zoaholic"
                                         # "owned_by": provider_item['provider']
                                     }
                                     all_models.append(model_info)
@@ -468,7 +496,7 @@ def post_all_models(api_index, config, api_list, models_list):
                                 "id": model,
                                 "object": "model",
                                 "created": 1720524448858,
-                                "owned_by": "uni-api"
+                                "owned_by": "Zoaholic"
                             }
                             all_models.append(model_info)
                     else:
@@ -483,7 +511,7 @@ def post_all_models(api_index, config, api_list, models_list):
                                         "id": model_item,
                                         "object": "model",
                                         "created": 1720524448858,
-                                        "owned_by": "uni-api"
+                                        "owned_by": "Zoaholic"
                                     }
                                     all_models.append(model_info)
                 continue
@@ -497,7 +525,7 @@ def post_all_models(api_index, config, api_list, models_list):
                     "id": model,
                     "object": "model",
                     "created": 1720524448858,
-                    "owned_by": "uni-api"
+                    "owned_by": "Zoaholic"
                 }
                 all_models.append(model_info)
 
@@ -516,7 +544,7 @@ def get_all_models(config):
                     "id": model,
                     "object": "model",
                     "created": 1720524448858,
-                    "owned_by": "uni-api"
+                    "owned_by": "Zoaholic"
                 }
                 all_models.append(model_info)
 

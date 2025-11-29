@@ -706,7 +706,7 @@ wheels = [
 ]
 
 [[package]]
-name = "uni-api"
+name = "Zoaholic"
 version = "0.1.0"
 source = { virtual = "." }
 dependencies = [
