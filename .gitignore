@@ -18,6 +18,5 @@ data/
 *.db-wal
 *.db-shm
 postgres_data/
-uniapi_db/
 alembic/
 alembic.ini

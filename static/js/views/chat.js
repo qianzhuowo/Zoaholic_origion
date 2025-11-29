@@ -8,11 +8,16 @@ const ChatView = {
      * @param {HTMLElement} container - Container element
      */
     render(container) {
-        container.classList.add("flex-row", "gap-4", "h-full", "pb-0");
-        container.classList.remove("flex-col");
+        // 布局说明：
+        // - 移动端：整体页面由 body 滚动，这里只做简单的纵向布局
+        // - 桌面端：左侧参数面板 + 右侧聊天区域并排
+        container.classList.remove("gap-6", "min-h-full");
+        container.classList.add("flex-col", "md:flex-row", "gap-4", "pb-0");
 
-        // Settings Panel
-        const settingsPanel = UI.card("filled", "w-80 flex-shrink-0 h-full overflow-y-auto hidden md:block");
+        // 不再在这里写死高度，交给浏览器根据内容和 body 自然滚动
+
+        // Settings Panel - hidden on mobile
+        const settingsPanel = UI.card("filled", "w-full md:w-80 flex-shrink-0 md:h-full overflow-y-auto hidden md:block");
         const settingsTitle = UI.el("h3", "text-title-large text-md-on-surface mb-4", "配置参数");
         settingsPanel.appendChild(settingsTitle);
 
@@ -52,10 +57,12 @@ const ChatView = {
 
         container.appendChild(settingsPanel);
 
-        // Chat Area
-        const chatArea = UI.card("outlined", "flex-1 flex flex-col h-full overflow-hidden");
+        // Chat Area - use flex-1 and min-h-0 for proper flex behavior
+        const chatArea = UI.card("outlined", "flex-1 flex flex-col min-h-0 overflow-hidden");
 
-        const msgList = UI.el("div", "flex-1 overflow-y-auto p-6 space-y-4 bg-md-surface-container-low");
+        // Message list with proper scrolling
+        const msgList = UI.el("div", "flex-1 overflow-y-auto p-4 md:p-6 space-y-4 bg-md-surface-container-low");
+        msgList.style.webkitOverflowScrolling = "touch"; // Smooth scrolling on iOS
 
         const renderMessage = (role, text) => {
             const isUser = role === "user";

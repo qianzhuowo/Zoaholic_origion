@@ -84,6 +84,32 @@ class ApiKeysStatesResponse(BaseModel):
     api_keys_states: Dict[str, ApiKeyState]
 
 
+class LogEntry(BaseModel):
+    id: int
+    timestamp: datetime
+    endpoint: Optional[str] = None
+    client_ip: Optional[str] = None
+    provider: Optional[str] = None
+    model: Optional[str] = None
+    api_key_prefix: Optional[str] = None
+    process_time: Optional[float] = None
+    first_response_time: Optional[float] = None
+    total_tokens: Optional[int] = None
+    is_flagged: bool
+
+    @field_serializer("timestamp")
+    def serialize_dt(self, dt: datetime):
+        return dt.isoformat()
+
+
+class LogsPage(BaseModel):
+    items: List[LogEntry]
+    total: int
+    page: int
+    page_size: int
+    total_pages: int
+
+
 # ============ Helper Functions ============
 
 async def query_token_usage(
@@ -534,3 +560,84 @@ async def add_credits_to_api_key(
         "new_credits": current_credits,
         "enabled": app.state.paid_api_keys_states[paid_key]["enabled"]
     })
+
+
+@router.get("/v1/logs", response_model=LogsPage, dependencies=[Depends(rate_limit_dependency)])
+async def get_logs(
+    request: Request,
+    page: int = Query(1, ge=1, description="Page number (starting from 1)"),
+    page_size: int = Query(20, ge=1, le=200, description="Number of items per page"),
+    token: str = Depends(verify_admin_api_key),
+):
+    """
+    获取请求日志（RequestStat）分页列表，仅管理员可访问。
+    """
+    if DISABLE_DATABASE:
+        raise HTTPException(status_code=503, detail="Database is disabled.")
+
+    async with async_session() as session:
+        # 统计总数（只统计 LLM 请求：POST /v1/chat/completions）
+        count_query = select(func.count(RequestStat.id)).where(
+            RequestStat.endpoint == "POST /v1/chat/completions"
+        )
+        result = await session.execute(count_query)
+        total = result.scalar() or 0
+
+        if total == 0:
+            return LogsPage(
+                items=[],
+                total=0,
+                page=page,
+                page_size=page_size,
+                total_pages=0,
+            )
+
+        total_pages = (total + page_size - 1) // page_size
+        if page > total_pages:
+            page = total_pages
+
+        offset = (page - 1) * page_size
+
+        query = (
+            select(RequestStat)
+            .where(RequestStat.endpoint == "POST /v1/chat/completions")
+            .order_by(RequestStat.timestamp.desc())
+            .offset(offset)
+            .limit(page_size)
+        )
+        rows_result = await session.execute(query)
+        rows = rows_result.scalars().all()
+
+    items: List[LogEntry] = []
+    for row in rows:
+        api_key = row.api_key or ""
+        if api_key and len(api_key) > 11:
+            prefix = api_key[:7]
+            suffix = api_key[-4:]
+            api_key_prefix = f"{prefix}...{suffix}"
+        else:
+            api_key_prefix = api_key
+
+        items.append(
+            LogEntry(
+                id=row.id,
+                timestamp=row.timestamp,
+                endpoint=row.endpoint,
+                client_ip=row.client_ip,
+                provider=row.provider,
+                model=row.model,
+                api_key_prefix=api_key_prefix,
+                process_time=row.process_time,
+                first_response_time=row.first_response_time,
+                total_tokens=row.total_tokens,
+                is_flagged=row.is_flagged,
+            )
+        )
+
+    return LogsPage(
+        items=items,
+        total=total,
+        page=page,
+        page_size=page_size,
+        total_pages=total_pages,
+    )

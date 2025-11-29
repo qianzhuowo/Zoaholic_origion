@@ -10,12 +10,14 @@ const AppConfig = {
         key: "sk-admin-demo-key-12345",
         balance: 999.99
     },
+    // 导航顺序：总览 - 日志 - 密钥 - 渠道 - 对话 - 工具箱
     navItems: [
         { id: "dashboard", label: "控制台总览", icon: "dashboard" },
-        { id: "chat", label: "对话 Playground", icon: "chat" },
-        { id: "tools", label: "工具箱 (Tools)", icon: "extension" },
+        { id: "logs", label: "请求日志", icon: "receipt_long" },
         { id: "admin", label: "API 密钥管理", icon: "vpn_key" },
-        { id: "config", label: "渠道配置", icon: "settings_applications" }
+        { id: "config", label: "渠道配置", icon: "settings_applications" },
+        { id: "chat", label: "对话", icon: "chat" },
+        { id: "tools", label: "工具箱", icon: "extension" }
     ]
 };
 

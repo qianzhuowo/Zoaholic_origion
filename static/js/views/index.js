@@ -10,6 +10,7 @@ const Views = {
         dashboard: DashboardView,
         chat: ChatView,
         tools: ToolsView,
+        logs: LogsView,
         admin: AdminView,
         config: ConfigView,
     },
@@ -19,6 +20,7 @@ const Views = {
         dashboard: "控制台总览",
         chat: "对话 Playground",
         tools: "工具箱 (Tools)",
+        logs: "请求日志",
         admin: "API 密钥管理",
         config: "渠道配置",
     },
@@ -101,8 +103,9 @@ const Views = {
         // 清空视口
         viewport.innerHTML = "";
         
-        // 创建容器
-        const container = UI.el("div", "animate-fade-in w-full h-full flex flex-col gap-6");
+        // 创建容器 - 使用 min-h-full 而不是 h-full，允许内容超出时滚动
+        // 移动端需要额外的底部内边距来避免被底部导航栏遮挡
+        const container = UI.el("div", "animate-fade-in w-full min-h-full flex flex-col gap-6 pb-4 md:pb-0");
         viewport.appendChild(container);
 
         Views.currentView = viewName;

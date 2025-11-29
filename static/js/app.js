@@ -13,6 +13,7 @@ const App = {
         App.checkMobile();
         App.renderNavigationRail();
         App.renderBottomNavigation();
+        App.setupMobileMenu();
         App.setupResponsiveListeners();
         
         // 初始化路由系统
@@ -45,6 +46,28 @@ const App = {
                 }
             }, 100);
         });
+    },
+
+    /**
+     * Setup mobile menu button (top app bar)
+     * 绑定移动端顶部左侧三杠按钮，弹出导航菜单
+     */
+    setupMobileMenu() {
+        const menuBtn = document.getElementById("mobile-menu-btn");
+        if (!menuBtn) return;
+
+        if (!AppConfig || !Array.isArray(AppConfig.navItems)) return;
+
+        const items = AppConfig.navItems.map((item) => ({
+            label: item.label,
+            icon: item.icon,
+            onClick: () => {
+                App.navigateTo(item.id, item.label);
+            }
+        }));
+
+        // 使用 MD3 菜单组件；UI.menu 内部会在点击时自动打开/关闭
+        UI.menu(menuBtn, items, { position: "bottom-start" });
     },
 
     /**
@@ -111,34 +134,82 @@ const App = {
 
         bottomNav.innerHTML = "";
 
-        // Show only first 5 items for bottom nav (MD3 recommends 3-5)
-        const visibleItems = AppConfig.navItems.slice(0, 5);
+        const totalItems = AppConfig.navItems.length;
+        
+        // If 5 or fewer items, show all; otherwise show first 4 + "more" menu
+        if (totalItems <= 5) {
+            AppConfig.navItems.forEach((item) => {
+                bottomNav.appendChild(App._createBottomNavItem(item));
+            });
+        } else {
+            // Show first 4 items
+            const visibleItems = AppConfig.navItems.slice(0, 4);
+            const moreItems = AppConfig.navItems.slice(4);
 
-        visibleItems.forEach((item) => {
-            const navItem = document.createElement("button");
-            navItem.className = "bottom-nav-item flex-1 flex flex-col items-center justify-center gap-1 py-3 text-md-on-surface-variant hover:bg-md-on-surface/8 transition-all md-state-layer rounded-md-lg mx-1";
-            navItem.dataset.id = item.id;
+            visibleItems.forEach((item) => {
+                bottomNav.appendChild(App._createBottomNavItem(item));
+            });
+
+            // Add "More" button with menu
+            const moreBtn = document.createElement("button");
+            moreBtn.className = "bottom-nav-item flex-1 flex flex-col items-center justify-center gap-1 py-3 text-md-on-surface-variant hover:bg-md-on-surface/8 transition-all md-state-layer rounded-md-lg mx-1";
+            moreBtn.dataset.id = "more";
             
-            // Icon container with pill background for active state
             const iconContainer = document.createElement("div");
             iconContainer.className = "icon-container w-16 h-8 rounded-md-full flex items-center justify-center transition-all";
-            iconContainer.appendChild(UI.icon(item.icon, "text-2xl"));
+            iconContainer.appendChild(UI.icon("more_horiz", "text-2xl"));
             
             const label = document.createElement("span");
             label.className = "text-label-small mt-1";
-            label.textContent = item.label.split(" ")[0];
+            label.textContent = "更多";
             
-            navItem.appendChild(iconContainer);
-            navItem.appendChild(label);
+            moreBtn.appendChild(iconContainer);
+            moreBtn.appendChild(label);
             
-            navItem.onclick = () => {
-                App.navigateTo(item.id, item.label);
-            };
+            // Create menu items for the "more" button
+            const menuItems = moreItems.map((item) => ({
+                label: item.label,
+                icon: item.icon,
+                onClick: () => {
+                    App.navigateTo(item.id, item.label);
+                }
+            }));
             
-            bottomNav.appendChild(navItem);
-        });
+            // Setup menu
+            UI.menu(moreBtn, menuItems, { position: "top-end" });
+            
+            bottomNav.appendChild(moreBtn);
+        }
 
         App.setActiveBottomNavItem("dashboard");
+    },
+
+    /**
+     * Create a bottom navigation item
+     * @private
+     */
+    _createBottomNavItem(item) {
+        const navItem = document.createElement("button");
+        navItem.className = "bottom-nav-item flex-1 flex flex-col items-center justify-center gap-1 py-3 text-md-on-surface-variant hover:bg-md-on-surface/8 transition-all md-state-layer rounded-md-lg mx-1";
+        navItem.dataset.id = item.id;
+        
+        // Icon container with pill background for active state
+        const iconContainer = document.createElement("div");
+        iconContainer.className = "icon-container w-16 h-8 rounded-md-full flex items-center justify-center transition-all";
+        iconContainer.appendChild(UI.icon(item.icon, "text-2xl"));
+        
+        const label = document.createElement("span");
+        label.className = "text-label-small mt-1";
+        label.textContent = item.label.split(" ")[0];
+        
+        navItem.appendChild(iconContainer);
+        navItem.appendChild(label);
+        
+        navItem.onclick = () => {
+            App.navigateTo(item.id, item.label);
+        };
+        
+        return navItem;
     },
 
     /**
@@ -176,9 +247,19 @@ const App = {
      * Set active bottom navigation item (Mobile)
      */
     setActiveBottomNavItem(itemId) {
+        // Check if the item is in the "more" menu (items after index 3 when total > 5)
+        const totalItems = AppConfig.navItems.length;
+        const moreItemIds = totalItems > 5 ? AppConfig.navItems.slice(4).map(item => item.id) : [];
+        const isInMoreMenu = moreItemIds.includes(itemId);
+        
         document.querySelectorAll(".bottom-nav-item").forEach((el) => {
             const iconContainer = el.querySelector(".icon-container");
-            if (el.dataset.id === itemId) {
+            const elId = el.dataset.id;
+            
+            // Highlight "more" button if the active item is in the more menu
+            const shouldHighlight = (elId === itemId) || (elId === "more" && isInMoreMenu);
+            
+            if (shouldHighlight) {
                 el.classList.add("text-md-on-primary-container");
                 el.classList.remove("text-md-on-surface-variant");
                 if (iconContainer) {

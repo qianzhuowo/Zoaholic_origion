@@ -47,9 +47,20 @@ async def api_config_update(
     更新 API 配置
     """
     app = get_app()
+    updated = False
+
+    # 支持同时更新 providers 和 api_keys 段，保持与 /v1/api_config 返回结构一致
     if "providers" in config:
         app.state.config["providers"] = config["providers"]
+        updated = True
+
+    if "api_keys" in config:
+        app.state.config["api_keys"] = config["api_keys"]
+        updated = True
+
+    if updated:
         app.state.config, app.state.api_keys_db, app.state.api_list = await update_config(
             app.state.config, use_config_url=False
         )
+
     return JSONResponse(content={"message": "API config updated"})

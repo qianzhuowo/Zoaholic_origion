@@ -1,55 +1,275 @@
 # Zoaholic
 
+<p align="center">
+  <img src="static/zoaholic.png" alt="Zoaholic Logo" width="200"/>
+</p>
 
-[英文](./README_EN.md) | [中文](./README.md)
+<p align="center">
+  <strong>统一大模型 API 网关</strong>
+</p>
 
-## 介绍
+<p align="center">
+  <a href="./README.md">中文</a> | <a href="./README_EN.md">English</a>
+</p>
 
-Zoaholic 是一个基于 uni-api 二次开发的统一大模型 API 网关。面向高客制化的复杂需求，去除new-api复杂的商业功能。它通过一个统一的 API 接口调用多种不同提供商的服务，统一转换为 OpenAI 格式，支持负载均衡。目前支持的后端服务有：OpenAI、Anthropic、Gemini、Vertex等，同时允许以插件的形式注册新的后端服务。
+## 📖 介绍
+
+Zoaholic 是一个基于 [uni-api](https://github.com/yym68686/uni-api) 二次开发的统一大模型 API 网关。面向高客制化的复杂需求，去除 new-api 复杂的商业功能。它通过一个统一的 API 接口调用多种不同提供商的服务，统一转换为 OpenAI 格式，支持负载均衡。
+
+### 支持的后端服务
+
+| 提供商 | 支持状态 | 说明 |
+|--------|----------|------|
+| OpenAI | ✅ | 包括 GPT-4o、DALL-E 3 等 |
+| Anthropic | ✅ | Claude 系列模型 |
+| Google Gemini | ✅ | Gemini 2.5 Pro/Flash 等 |
+| Google Vertex AI | ✅ | 同时支持 Claude 和 Gemini |
+| Azure OpenAI | ✅ | Azure 托管的 OpenAI 模型 |
+| AWS Bedrock | ✅ | Claude 等模型 |
+| 自定义插件 | ✅ | 通过插件系统扩展 |
 
 ## ✨ 特性
 
-- 无前端，纯配置文件配置 API 渠道。只要写一个文件就能运行起一个属于自己的 API 站，文档有详细的配置指南，小白友好。
-- 统一管理多个后端服务，支持 OpenAI、Deepseek、OpenRouter 等其他 API 是 OpenAI 格式的提供商。支持 OpenAI Dalle-3 图像生成。
-- 同时支持 Anthropic、Gemini、Vertex AI等。Vertex 同时支持 Claude 和 Gemini API。
-- 支持 OpenAI、 Anthropic、Gemini、Vertex、Azure、AWS、xai 原生 tool use 函数调用。
-- 支持 OpenAI、Anthropic、Gemini、Vertex、Azure、AWS、xai 原生识图 API。
-- 支持四种负载均衡。
-  1. 支持渠道级加权负载均衡，可以根据不同的渠道权重分配请求。默认不开启，需要配置渠道权重。
-  2. 支持 Vertex 区域级负载均衡，支持 Vertex 高并发，最高可将 Gemini，Claude 并发提高 （API数量 * 区域数量） 倍。自动开启不需要额外配置。
-  3. 除了 Vertex 区域级负载均衡，所有 API 均支持渠道级顺序负载均衡，提高沉浸式翻译体验。默认不开启，需要配置 `SCHEDULING_ALGORITHM` 为 `round_robin`。
-  4. 支持单个渠道多个 API Key 自动开启 API key 级别的轮训负载均衡。
-- 支持自动重试，当一个 API 渠道响应失败时，自动重试下一个 API 渠道。
-- 支持渠道冷却，当一个 API 渠道响应失败时，会自动将该渠道排除冷却一段时间，不再请求该渠道，冷却时间结束后，会自动将该模型恢复，直到再次请求失败，会重新冷却。
-- 支持细粒度的模型超时时间设置，可以为每个模型设置不同的超时时间。
-- 支持细粒度的权限控制。支持使用通配符设置 API key 可用渠道的特定模型。
-- 支持限流，可以设置每分钟最多请求次数，可以设置为整数，如 2/min，2 次每分钟、5/hour，5 次每小时、10/day，10 次每天，10/month，10 次每月，10/year，10 次每年。默认60/min。
-- 支持多个标准 OpenAI 格式的接口：`/v1/chat/completions`，`/v1/images/generations`，`/v1/audio/transcriptions`，`/v1/moderations`，`/v1/models`。
-- 支持 OpenAI moderation 道德审查，可以对用户的消息进行道德审查，如果发现不当的消息，会返回错误信息。降低后台 API 被提供商封禁的风险。
+### 核心功能
 
-## 使用方法
+- **纯配置文件驱动** - 只需编写一个 `api.yaml` 文件即可运行，小白友好
+- **统一 API 格式** - 所有后端服务统一转换为 OpenAI 格式
+- **内置管理前端** - Material Design 3 风格的可视化管理界面
+- **插件系统** - 支持通过插件扩展渠道、中间件、钩子等
 
-启动 Zoaholic 必须使用配置文件，有两种方式可以启动配置文件：
+### 负载均衡
 
-1. 第一种是使用 `CONFIG_URL` 环境变量填写配置文件 URL，Zoaholic 启动时会自动下载。
-2. 第二种就是挂载名为 `api.yaml` 的配置文件到容器内。
+- **渠道级加权负载均衡** - 根据不同渠道权重分配请求
+- **Vertex 区域级负载均衡** - 最高可将并发提高 (API数量 × 区域数量) 倍
+- **渠道级顺序负载均衡** - 提高沉浸式翻译体验
+- **API Key 级别轮询** - 单渠道多 Key 自动负载均衡
 
-### 方法一：挂载 `api.yaml` 配置文件启动 Zoaholic
+### 高可用
 
-必须事先填写完成配置文件才能启动 `Zoaholic`，必须使用名为 `api.yaml` 的配置文件才能启动 `Zoaholic`，可以配置多个模型，每个模型可以配置多个后端服务，支持负载均衡。下面是最小可运行的 `api.yaml` 配置文件的示例：
+- **自动重试** - API 渠道响应失败时自动重试下一个渠道
+- **渠道冷却** - 失败渠道自动排除，冷却后自动恢复
+- **细粒度超时** - 可为每个模型设置不同的超时时间
+
+### 安全与控制
+
+- **细粒度权限控制** - 支持通配符设置 API Key 可用模型
+- **限流** - 支持多种频率限制（分钟/小时/天/月/年）
+- **道德审查** - 支持 OpenAI moderation 审查，降低封禁风险
+
+### API 端点
+
+- `/v1/chat/completions` - 聊天补全
+- `/v1/images/generations` - 图像生成
+- `/v1/audio/transcriptions` - 音频转录
+- `/v1/embeddings` - 文本嵌入
+- `/v1/moderations` - 内容审核
+- `/v1/models` - 模型列表
+
+## 🚀 快速开始
+
+### 环境要求
+
+- Python 3.11+
+- 或 Docker
+
+### 方法一：Docker 部署（推荐）
+
+1. 创建配置文件 `api.yaml`：
 
 ```yaml
 providers:
-  - provider: provider_name # 服务提供商名称, 如 openai、anthropic、gemini、openrouter，随便取名字，必填
-    base_url: https://api.your.com/v1/chat/completions # 后端服务的API地址，必填
-    api: sk-YgS6GTi0b4bEabc4C # 提供商的API Key，必填，自动使用 base_url 和 api 通过 /v1/models 端点获取可用的所有模型。
-  # 这里可以配置多个提供商，每个提供商可以配置多个 API Key，每个提供商可以配置多个模型。
+  - provider: openai
+    base_url: https://api.openai.com/v1/chat/completions
+    api: sk-your-api-key
+
 api_keys:
-  - api: sk-Pkj60Yf8JFWxfgRmXQFWyGtWUddGZnmi3KlvowmRWpWpQxx # API Key，用户请求 uni-api 需要 API key，必填
-  # 该 API Key 可以使用所有模型，即可以使用 providers 下面设置的所有渠道里面的所有模型，不需要一个个添加可用渠道。
+  - api: sk-your-zoaholic-key
 ```
 
-`api.yaml` 详细的高级配置：
+2. 使用 Docker Compose 启动：
+
+```yaml
+# docker-compose.yml
+services:
+  zoaholic:
+    container_name: zoaholic
+    image: zoaholic:latest
+    ports:
+      - 8000:8000
+    volumes:
+      - ./api.yaml:/home/api.yaml
+      - ./data:/home/data
+```
+
+```bash
+docker-compose up -d
+```
+
+### 方法二：本地运行
+
+```bash
+# 克隆项目
+git clone https://github.com/your-repo/zoaholic.git
+cd zoaholic
+
+# 安装依赖（推荐使用 uv）
+uv sync
+
+# 创建配置文件
+cp api.yaml.example api.yaml
+# 编辑 api.yaml 配置你的 API
+
+# 启动服务
+python main.py
+```
+
+### 方法三：使用 CONFIG_URL
+
+通过环境变量指定远程配置文件：
+
+```bash
+export CONFIG_URL=https://your-server.com/api.yaml
+python main.py
+```
+
+## 📝 配置指南
+
+### 最小配置
+
+```yaml
+providers:
+  - provider: openai
+    base_url: https://api.openai.com/v1/chat/completions
+    api: sk-your-api-key
+
+api_keys:
+  - api: sk-your-zoaholic-key
+```
+
+### 完整配置示例
+
+```yaml
+providers:
+  # OpenAI 格式提供商
+  - provider: openai
+    base_url: https://api.openai.com/v1/chat/completions
+    api: sk-xxx
+    model:
+      - gpt-4o
+      - gpt-4o-mini
+      - dall-e-3
+
+  # Anthropic Claude
+  - provider: anthropic
+    base_url: https://api.anthropic.com/v1/messages
+    api:
+      - sk-ant-api03-xxx  # 支持多 Key 轮询
+      - sk-ant-api03-yyy
+    model:
+      - claude-3-5-sonnet-20240620: claude-3-5-sonnet  # 重命名模型
+      - claude-3-7-sonnet-20250219: claude-3-7-sonnet-think
+    tools: true
+    preferences:
+      api_key_rate_limit: 15/min
+      api_key_cooldown_period: 60
+
+  # Google Gemini
+  - provider: gemini
+    base_url: https://generativelanguage.googleapis.com/v1beta
+    api:
+      - AIzaSyxxx
+      - AIzaSyyyy
+    model:
+      - gemini-2.5-pro
+      - gemini-2.5-flash
+      - gemini-2.5-pro: gemini-2.5-pro-search  # 搜索版本
+    tools: true
+    preferences:
+      api_key_rate_limit: 15/min
+      model_timeout:
+        gemini-2.5-pro: 500
+        default: 100
+      post_body_parameter_overrides:
+        gemini-2.5-pro-search:
+          tools:
+            - google_search: {}
+
+  # Google Vertex AI
+  - provider: vertex
+    project_id: your-project-id
+    private_key: "-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----"
+    client_email: xxx@xxx.iam.gserviceaccount.com
+    model:
+      - gemini-2.5-flash
+      - claude-3-5-sonnet@20240620: claude-3-5-sonnet
+    tools: true
+
+  # Azure OpenAI
+  - provider: azure
+    base_url: https://your-endpoint.openai.azure.com
+    api: your-api-key
+    model:
+      - gpt-4o
+
+  # AWS Bedrock
+  - provider: aws
+    base_url: https://bedrock-runtime.us-east-1.amazonaws.com
+    aws_access_key: xxx
+    aws_secret_key: xxx
+    model:
+      - anthropic.claude-3-5-sonnet-20240620-v1:0: claude-3-5-sonnet
+
+  # Cloudflare Workers AI
+  - provider: cloudflare
+    api: your-cf-api-key
+    cf_account_id: your-account-id
+    model:
+      - '@cf/meta/llama-3.1-8b-instruct': llama-3.1-8b
+
+api_keys:
+  # 管理员 Key
+  - api: sk-admin-key
+    role: admin
+    model:
+      - gpt-4o
+      - claude-3-5-sonnet
+      - gemini/*  # 通配符：gemini 渠道的所有模型
+    preferences:
+      SCHEDULING_ALGORITHM: round_robin
+      AUTO_RETRY: true
+      rate_limit: 60/min
+
+  # 普通用户 Key（加权负载均衡）
+  - api: sk-user-key
+    model:
+      - gcp1/*: 5  # 权重 5
+      - gcp2/*: 3  # 权重 3
+      - gcp3/*: 2  # 权重 2
+    preferences:
+      SCHEDULING_ALGORITHM: weighted_round_robin
+      credits: 10  # 余额限制
+      created_at: 2024-01-01T00:00:00+08:00
+
+# 全局配置
+preferences:
+  model_timeout:
+    gpt-4o: 30
+    claude-3-5-sonnet: 60
+    default: 100
+  cooldown_period: 300
+  rate_limit: 999999/min
+  error_triggers:
+    - "The bot's usage is covered by the developer"
+  model_price:
+    gpt-4o: 2.5,10
+    claude-3-5-sonnet: 3,15
+    default: 1,2
+```
+
+
+### 高级完整配置示例（保留原版全部高级字段）
+
+下面给出一个更完整的 [`api.yaml`](api.yaml:1) 高级配置示例，包含多提供商、多 API Key、频率限制、冷却、代理、价格配置等，基本覆盖原版 README 中的所有高级字段，便于直接对照修改：
 
 ```yaml
 providers:
@@ -58,76 +278,76 @@ providers:
     api: sk-YgS6GTi0b4bEabc4C # 提供商的API Key，必填
     model: # 选填，如果不配置 model，会自动通过 base_url 和 api 通过 /v1/models 端点获取可用的所有模型。
       - gpt-4o # 可以使用的模型名称，必填
-      - claude-3-5-sonnet-20240620: claude-3-5-sonnet # 重命名模型，claude-3-5-sonnet-20240620 是服务商的模型名称，claude-3-5-sonnet 是重命名后的名字，可以使用简洁的名字代替原来复杂的名称，选填
+      - claude-3-5-sonnet-20240620: claude-3-5-sonnet # 重命名模型，可以用简短别名
       - dall-e-3
 
   - provider: anthropic
     base_url: https://api.anthropic.com/v1/messages
-    api: # 支持多个 API Key，多个 key 自动开启轮训负载均衡，至少一个 key，必填
+    api: # 支持多个 API Key，多个 key 自动开启轮询负载均衡，至少一个 key，必填
       - sk-ant-api03-bNnAOJyA-xQw_twAA
       - sk-ant-api02-bNnxxxx
     model:
-      - claude-3-7-sonnet-20240620: claude-3-7-sonnet # 重命名模型，claude-3-7-sonnet-20240620 是服务商的模型名称，claude-3-7-sonnet 是重命名后的名字，可以使用简洁的名字代替原来复杂的名称，选填
-      - claude-3-7-sonnet-20250219: claude-3-7-sonnet-think # 重命名模型，claude-3-7-sonnet-20250219 是服务商的模型名称，claude-3-7-sonnet-think 是重命名后的名字，可以使用简洁的名字代替原来复杂的名称，如果重命名后的名字里面有think，则自动转换为 claude 思考模型，默认思考 token 限制为 4096。选填
-    tools: true # 是否支持工具，如生成代码、生成文档等，默认是 true，选填
+      - claude-3-7-sonnet-20240620: claude-3-7-sonnet
+      - claude-3-7-sonnet-20250219: claude-3-7-sonnet-think # 带 think 的别名会被视为思考模型
+    tools: true # 是否支持工具调用，默认 true
     preferences:
-      post_body_parameter_overrides: # 支持自定义请求体参数
-        claude-3-7-sonnet-think: # 给模型 claude-3-7-sonnet-think 添加自定义请求体参数
+      post_body_parameter_overrides: # 针对模型自定义请求体参数
+        claude-3-7-sonnet-think:
           tools:
-            - type: code_execution_20250522 # 给模型 claude-3-7-sonnet-think 添加 code_execution 工具
+            - type: code_execution_20250522
               name: code_execution
-            - type: web_search_20250305 # 给模型 claude-3-7-sonnet-think 添加 web_search 工具，max_uses 表示最多使用 5 次
+            - type: web_search_20250305
               name: web_search
               max_uses: 5
 
   - provider: gemini
-    base_url: https://generativelanguage.googleapis.com/v1beta # base_url 支持 v1beta/v1, 仅供 Gemini 模型使用，必填
-    api: # 支持多个 API Key，多个 key 自动开启轮训负载均衡，至少一个 key，必填
+    base_url: https://generativelanguage.googleapis.com/v1beta # 仅供 Gemini 模型使用，必填
+    api:
       - AIzaSyAN2k6IRdgw123
       - AIzaSyAN2k6IRdgw456
       - AIzaSyAN2k6IRdgw789
     model:
       - gemini-2.5-pro
-      - gemini-2.5-flash: gemini-2.5-flash # 重命名后，原来的模型名字 gemini-2.5-flash 无法使用，如果要使用原来的名字，可以在 model 中添加原来的名字，只要加上下面一行就可以使用原来的名字了
+      - gemini-2.5-flash: gemini-2.5-flash # 重命名后，如果还想用原名，需要再写一行原名
       - gemini-2.5-flash
-      - gemini-2.5-pro: gemini-2.5-pro-search # 可以以 -search 后缀重命名模型，同时在 post_body_parameter_overrides 设置针对此模型的自定义请求体参数即可启用搜索。
-      - gemini-2.5-flash: gemini-2.5-flash-think-24576-search # 可以以 -search 后缀重命名模型，同时在 post_body_parameter_overrides 设置针对此模型的自定义请求体参数即可启用搜索，同时支持使用 `-think-数字` 自定义推理预算，可以同时开启也可以单独开启。
-      - gemini-2.5-flash: gemini-2.5-flash-think-0 # 支持以 -think-数字 自定义推理预算，当数字为 0 时，表示关闭推理。
+      - gemini-2.5-pro: gemini-2.5-pro-search # 以 -search 结尾可作为“搜索版”模型
+      - gemini-2.5-flash: gemini-2.5-flash-think-24576-search # 同时支持 search 与 think-数字
+      - gemini-2.5-flash: gemini-2.5-flash-think-0 # think-0 表示关闭推理
       - gemini-embedding-001
       - text-embedding-004
     tools: true
     preferences:
-      api_key_rate_limit: 15/min # 每个 API Key 每分钟最多请求次数，选填。默认为 999999/min。支持多个频率约束条件：15/min,10/day
-      # api_key_rate_limit: # 可以为每个模型设置不同的频率限制
+      api_key_rate_limit: 15/min # 每个 API Key 每分钟最多请求次数，支持 15/min,10/day 等组合
+      # api_key_rate_limit:
       #   gemini-2.5-flash: 10/min,500/day
-      #   gemini-2.5-pro: 5/min,25/day,1048576/tpr # 1048576/tpr 表示每次请求的 tokens 数量限制为 1048576 个 tokens
-      #   default: 4/min # 如果模型没有设置频率限制，使用 default 的频率限制
-      api_key_cooldown_period: 60 # 每个 API Key 遭遇 429 错误后的冷却时间，单位为秒，选填。默认为 0 秒, 当设置为 0 秒时，不启用冷却机制。当存在多个 API key 时才会生效。
-      api_key_schedule_algorithm: round_robin # 设置多个 API Key 的请求顺序，选填。默认为 round_robin，可选值有：round_robin，random，fixed_priority，smart_round_robin。当存在多个 API key 时才会生效。round_robin 是轮询负载均衡，random 是随机负载均衡，fixed_priority 是固定优先级调度，永远使用第一个可用的 API key。smart_round_robin 是一个基于历史成功率的智能调度算法，详见 FAQ 部分。
-      model_timeout: # 模型超时时间，单位为秒，默认 100 秒，选填
-        gemini-2.5-pro: 500 # 模型 gemini-2.5-pro 的超时时间为 500 秒
-        gemini-2.5-flash: 500 # 模型 gemini-2.5-flash 的超时时间为 500 秒
-        default: 10 # 模型没有设置超时时间，使用默认的超时时间 10 秒，当请求的不在 model_timeout 里面的模型时，超时时间默认是 10 秒，不设置 default，uni-api 会使用全局配置的模型超时时间。
-      keepalive_interval: # 心跳间隔，单位为秒，默认 99999 秒，选填。适合当 uni-api 域名托管在 cloudflare 并使用推理模型时使用。优先级高于全局配置的 keepalive_interval。
-        gemini-2.5-pro: 50 # 模型 gemini-2.5-pro 的心跳间隔为 50 秒，此数值必须小于 model_timeout 设置的超时时间，否则忽略此设置。
-      proxy: socks5://[用户名]:[密码]@[IP地址]:[端口] # 代理地址，选填。支持 socks5 和 http 代理，默认不使用代理。
-      headers:  # 额外附加自定义HTTP请求头，选填。
+      #   gemini-2.5-pro: 5/min,25/day,1048576/tpr # tpr 表示每次请求 tokens 上限
+      #   default: 4/min
+      api_key_cooldown_period: 60 # 单个 API Key 遭遇 429 后的冷却时间（秒）
+      api_key_schedule_algorithm: round_robin # 多 Key 调度：round_robin/random/fixed_priority/smart_round_robin
+      model_timeout: # 模型超时时间（秒），默认 100 秒
+        gemini-2.5-pro: 500
+        gemini-2.5-flash: 500
+        default: 10
+      keepalive_interval: # 心跳间隔（秒），适合 Cloudflare 场景
+        gemini-2.5-pro: 50 # 必须小于 model_timeout
+      proxy: socks5://[用户名]:[密码]@[IP地址]:[端口] # 支持 socks5 / http 代理
+      headers:
         Custom-Header-1: Value-1
         Custom-Header-2: Value-2
-      post_body_parameter_overrides: # 支持自定义请求体参数
-        gemini-2.5-pro-search: # 给模型 gemini-2.5-pro-search 添加自定义请求体参数
+      post_body_parameter_overrides:
+        gemini-2.5-pro-search:
           tools:
-            - google_search: {} # 给模型 gemini-2.5-pro-search 添加 google_search 工具
-            - url_context: {} # 给模型 gemini-2.5-pro-search 添加 url_context 工具
+            - google_search: {}
+            - url_context: {}
 
   - provider: vertex
-    project_id: gen-lang-client-xxxxxxxxxxxxxx #    描述： 您的Google Cloud项目ID。格式： 字符串，通常由小写字母、数字和连字符组成。获取方式： 在Google Cloud Console的项目选择器中可以找到您的项目ID。
-    private_key: "-----BEGIN PRIVATE KEY-----\nxxxxx\n-----END PRIVATE" # 描述： Google Cloud Vertex AI服务账号的私钥。格式： 一个 JSON 格式的字符串，包含服务账号的私钥信息。获取方式： 在 Google Cloud Console 中创建服务账号，生成JSON格式的密钥文件，然后将其内容设置为此环境变量的值。
-    client_email: xxxxxxxxxx@xxxxxxx.gserviceaccount.com # 描述： Google Cloud Vertex AI 服务账号的电子邮件地址。格式： 通常是形如 "service-account-name@project-id.iam.gserviceaccount.com" 的字符串。获取方式： 在创建服务账号时生成，也可以在 Google Cloud Console 的"IAM与管理"部分查看服务账号详情获得。
+    project_id: gen-lang-client-xxxxxxxxxxxxxx # Google Cloud 项目 ID
+    private_key: "-----BEGIN PRIVATE KEY-----\nxxxxx\n-----END PRIVATE KEY-----" # 服务账号私钥 JSON 中的 private_key
+    client_email: xxxxxxxxxx@xxxxxxx.gserviceaccount.com # 服务账号邮箱
     model:
       - gemini-2.5-flash
       - gemini-2.5-pro
-      - gemini-2.5-pro: gemini-2.5-pro-search # 可以以 -search 后缀重命名模型，同时在 post_body_parameter_overrides 设置针对此模型的自定义请求体参数即可启用搜索。不设置 post_body_parameter_overrides 参数，则无法启用搜索。
+      - gemini-2.5-pro: gemini-2.5-pro-search
       - claude-3-5-sonnet@20240620: claude-3-5-sonnet
       - claude-3-opus@20240229: claude-3-opus
       - claude-3-sonnet@20240229: claude-3-sonnet
@@ -135,12 +355,12 @@ providers:
       - gemini-embedding-001
       - text-embedding-004
     tools: true
-    notes: https://xxxxx.com/ # 可以放服务商的网址，备注信息，官方文档，选填
+    notes: https://xxxxx.com/ # 备注、官方文档链接等
     preferences:
-      post_body_parameter_overrides: # 支持自定义请求体参数
-        gemini-2.5-pro-search: # 给模型 gemini-2.5-pro-search 添加自定义请求体参数
+      post_body_parameter_overrides:
+        gemini-2.5-pro-search:
           tools:
-            - google_search: {} # 给模型 gemini-2.5-pro-search 添加 google_search 工具
+            - google_search: {}
         gemini-2.5-flash:
           generationConfig:
             thinkingConfig:
@@ -153,11 +373,11 @@ providers:
             - url_context: {}
 
   - provider: cloudflare
-    api: f42b3xxxxxxxxxxq4aoGAh # Cloudflare API Key，必填
-    cf_account_id: 8ec0xxxxxxxxxxxxe721 # Cloudflare Account ID，必填
+    api: f42b3xxxxxxxxxxq4aoGAh # Cloudflare API Key
+    cf_account_id: 8ec0xxxxxxxxxxxxe721 # Cloudflare Account ID
     model:
-      - '@cf/meta/llama-3.1-8b-instruct': llama-3.1-8b # 重命名模型，@cf/meta/llama-3.1-8b-instruct 是服务商的原始的模型名称，必须使用引号包裹模型名，否则yaml语法错误，llama-3.1-8b 是重命名后的名字，可以使用简洁的名字代替原来复杂的名称，选填
-      - '@cf/meta/llama-3.1-8b-instruct' # 必须使用引号包裹模型名，否则yaml语法错误
+      - '@cf/meta/llama-3.1-8b-instruct': llama-3.1-8b # 必须使用引号
+      - '@cf/meta/llama-3.1-8b-instruct'
 
   - provider: azure
     base_url: https://your-endpoint.openai.azure.com
@@ -165,12 +385,12 @@ providers:
     model:
       - gpt-4o
     preferences:
-      post_body_parameter_overrides: # 支持自定义请求体参数
-        key1: value1 # 强制在请求中添加 "key1": "value1" 参数
-        key2: value2 # 强制在请求中添加 "key2": "value2" 参数
+      post_body_parameter_overrides:
+        key1: value1
+        key2: value2
         stream_options:
-          include_usage: true # 强制在请求中添加 "stream_options": {"include_usage": true} 参数
-      cooldown_period: 0 # 当 cooldown_period 设置为 0 时，表示该渠道不启用冷却机制，优先级高于全局配置的 cooldown_period。
+          include_usage: true
+      cooldown_period: 0 # 渠道级冷却设为 0 表示不启用冷却机制
 
   - provider: databricks
     base_url: https://xxx.azuredatabricks.net
@@ -206,189 +426,203 @@ providers:
       - causallm-35b-beta2ep-q6k: causallm-35b
       - anthropic/claude-3-5-sonnet
     tools: false
-    engine: openrouter # 强制使用某个消息格式，目前支持 gpt，claude，gemini，openrouter 原生格式，选填
+    engine: openrouter # 强制使用 openrouter / gpt / claude / gemini 等特定消息格式
 
 api_keys:
-  - api: sk-KjjI60Yf0JFWxfgRmXqFWyGtWUd9GZnmi3KlvowmRWpWpQRo # API Key，用户使用本服务需要 API key，必填
-    model: # 该 API Key 可以使用的模型，选填。默认开启渠道级轮询负载均衡，每次请求模型按照 model 配置的顺序依次请求。与 providers 里面原始的渠道顺序无关。因此你可以设置每个 API key 请求顺序不一样。
-      - gpt-4o # 可以使用的模型名称，可以使用所有提供商提供的 gpt-4o 模型
-      - claude-3-5-sonnet # 可以使用的模型名称，可以使用所有提供商提供的 claude-3-5-sonnet 模型
-      - gemini/* # 可以使用的模型名称，仅可以使用名为 gemini 提供商提供的所有模型，其中 gemini 是 provider 名称，* 代表所有模型
-    role: admin # 设置 API key 的别名，选填。请求日志会显示该 API key 的别名。如果 role 为 admin，则仅有此 API key 可以请求 v1/stats,/v1/generate-api-key 端点。如果所有 API key 都没有设置 role 为 admin，则默认第一个 API key 为 admin 拥有请求 v1/stats,/v1/generate-api-key 端点的权限。
+  - api: sk-KjjI60Yf0JFWxfgRmXqFWyGtWUd9GZnmi3KlvowmRWpWpQRo # API Key，必填
+    model: # 该 Key 可用的模型列表，默认按此顺序轮询
+      - gpt-4o
+      - claude-3-5-sonnet
+      - gemini/* # 仅使用 provider 名为 gemini 的所有模型
+    role: admin # admin Key 可访问 /v1/stats,/v1/generate-api-key 等敏感接口
 
   - api: sk-pkhf60Yf0JGyJxgRmXqFQyTgWUd9GZnmi3KlvowmRWpWqrhy
     model:
-      - anthropic/claude-3-5-sonnet # 可以使用的模型名称，仅可以使用名为 anthropic 提供商提供的 claude-3-5-sonnet 模型。其他提供商的 claude-3-5-sonnet 模型不可以使用。这种写法不会匹配到other-provider提供的名为anthropic/claude-3-5-sonnet的模型。
-      - <anthropic/claude-3-5-sonnet> # 通过在模型名两侧加上尖括号，这样就不会去名为anthropic的渠道下去寻找claude-3-5-sonnet模型，而是将整个 anthropic/claude-3-5-sonnet 作为模型名称。这种写法可以匹配到other-provider提供的名为 anthropic/claude-3-5-sonnet 的模型。但不会匹配到anthropic下面的claude-3-5-sonnet模型。
-      - openai-test/omni-moderation-latest # 当开启消息道德审查后，可以使用名为 openai-test 渠道下的 omni-moderation-latest 模型进行道德审查。
-      - sk-KjjI60Yd0JFWtxxxxxxxxxxxxxxwmRWpWpQRo/* # 支持将其他 api key 当作渠道
+      - anthropic/claude-3-5-sonnet # 仅 anthropic 渠道下的 claude-3-5-sonnet
+      - <anthropic/claude-3-5-sonnet> # 尖括号包裹时，不再拆分 provider/name，而是整个匹配模型名
+      - openai-test/omni-moderation-latest # 道德审查模型
+      - sk-KjjI60Yd0JFWtxxxxxxxxxxxxxxwmRWpWpQRo/* # 可将其他 API Key 作为“渠道”引用
     preferences:
-      SCHEDULING_ALGORITHM: fixed_priority # 当 SCHEDULING_ALGORITHM 为 fixed_priority 时，使用固定优先级调度，永远执行第一个拥有请求的模型的渠道。默认开启，SCHEDULING_ALGORITHM 缺省值为 fixed_priority。SCHEDULING_ALGORITHM 可选值有：fixed_priority，round_robin，weighted_round_robin, lottery, random。
-      # 当 SCHEDULING_ALGORITHM 为 random 时，使用随机轮训负载均衡，随机请求拥有请求的模型的渠道。
-      # 当 SCHEDULING_ALGORITHM 为 round_robin 时，使用轮训负载均衡，按照顺序请求用户使用的模型的渠道。
-      AUTO_RETRY: true # 是否自动重试，自动重试下一个提供商，true 为自动重试，false 为不自动重试，默认为 true。也可以设置为数字，表示重试次数。
-      rate_limit: 15/min # 支持限流，每分钟最多请求次数，可以设置为整数，如 2/min，2 次每分钟、5/hour，5 次每小时、10/day，10 次每天，10/month，10 次每月，10/year，10 次每年。默认999999/min，选填。支持多个频率约束条件：15/min,10/day
-      # rate_limit: # 可以为每个模型设置不同的频率限制
+      SCHEDULING_ALGORITHM: fixed_priority # 固定优先级调度，始终优先第一个可用渠道
+      # 可选：fixed_priority / round_robin / weighted_round_robin / lottery / random / smart_round_robin
+      AUTO_RETRY: true # 自动重试下一个提供商，也可以设为数字表示重试次数
+      rate_limit: 15/min # 限流支持多种周期：2/min,5/hour,10/day,10/month,10/year
+      # rate_limit:
       #   gemini-2.5-flash: 10/min,500/day
       #   gemini-2.5-pro: 5/min,25/day
-      #   default: 4/min # 如果模型没有设置频率限制，使用 default 的频率限制
-      ENABLE_MODERATION: true # 是否开启消息道德审查，true 为开启，false 为不开启，默认为 false，当开启后，会对用户的消息进行道德审查，如果发现不当的消息，会返回错误信息。
+      #   default: 4/min
+      ENABLE_MODERATION: true # 是否开启消息道德审查
 
-  # 渠道级加权负载均衡配置示例
+  # 渠道级加权负载均衡示例
   - api: sk-KjjI60Yd0JFWtxxxxxxxxxxxxxxwmRWpWpQRo
     model:
-      - gcp1/*: 5 # 冒号后面就是权重，权重仅支持正整数。
-      - gcp2/*: 3 # 数字的大小代表权重，数字越大，请求的概率越大。
-      - gcp3/*: 2 # 在该示例中，所有渠道加起来一共有 10 个权重，及 10 个请求里面有 5 个请求会请求 gcp1/* 模型，2 个请求会请求 gcp2/* 模型，3 个请求会请求 gcp3/* 模型。
-
+      - gcp1/*: 5 # 权重仅支持正整数，数字越大被选中的概率越高
+      - gcp2/*: 3
+      - gcp3/*: 2
     preferences:
-      SCHEDULING_ALGORITHM: weighted_round_robin # 仅当 SCHEDULING_ALGORITHM 为 weighted_round_robin 并且上面的渠道如果有权重，会按照加权后的顺序请求。使用加权轮训负载均衡，按照权重顺序请求拥有请求的模型的渠道。当 SCHEDULING_ALGORITHM 为 lottery 时，使用抽奖轮训负载均衡，按照权重随机请求拥有请求的模型的渠道。没设置权重的渠道自动回退到 round_robin 轮训负载均衡。
+      SCHEDULING_ALGORITHM: weighted_round_robin # 基于权重的轮询算法，或 lottery 抽奖式调度
       AUTO_RETRY: true
-      credits: 10 # 支持设置余额，此时设置的数字表示该 API Key 的可以用 10 美元，选填。默认为无限余额，当设置为 0 时，该 key 不可使用。当用户使用完余额后，后续请求将会被阻止。
-      created_at: 2024-01-01T00:00:00+08:00 # 当设置好余额后，必须设置 created_at 参数，表示使用费用从 created_at 设定的时间开始计算。选填。默认从当前时间的第 30 天前开始计算。
+      credits: 10 # 余额上限（美元），为 0 表示不可使用
+      created_at: 2024-01-01T00:00:00+08:00 # 费用统计起始时间
 
 preferences: # 全局配置
-  model_timeout: # 模型超时时间，单位为秒，默认 100 秒，选填
-    gpt-4o: 10 # 模型 gpt-4o 的超时时间为 10 秒,gpt-4o 是模型名称，当请求 gpt-4o-2024-08-06 等模型时，超时时间也是 10 秒
-    claude-3-5-sonnet: 10 # 模型 claude-3-5-sonnet 的超时时间为 10 秒，当请求 claude-3-5-sonnet-20240620 等模型时，超时时间也是 10 秒
-    default: 10 # 模型没有设置超时时间，使用默认的超时时间 10 秒，当请求的不在 model_timeout 里面的模型时，超时时间默认是 10 秒，不设置 default，uni-api 会使用 环境变量 TIMEOUT 设置的默认超时时间，默认超时时间是 100 秒
-    o1-mini: 30 # 模型 o1-mini 的超时时间为 30 秒，当请求名字是 o1-mini 开头的模型时，超时时间是 30 秒
-    o1-preview: 100 # 模型 o1-preview 的超时时间为 100 秒，当请求名字是 o1-preview 开头的模型时，超时时间是 100 秒
-  cooldown_period: 300 # 渠道冷却时间，单位为秒，默认 300 秒，选填。当模型请求失败时，会自动将该渠道排除冷却一段时间，不再请求该渠道，冷却时间结束后，会自动将该模型恢复，直到再次请求失败，会重新冷却。当 cooldown_period 设置为 0 时，不启用冷却机制。
-  rate_limit: 999999/min # uni-api 全局速率限制，单位为次数/分钟，支持多个频率约束条件，例如：15/min,10/day。默认 999999/min，选填。
-  keepalive_interval: # 心跳间隔，单位为秒，默认 99999 秒，选填。适合当 uni-api 域名托管在 cloudflare 并使用推理模型时使用。
-    gemini-2.5-pro: 50 # 模型 gemini-2.5-pro 的心跳间隔为 50 秒，此数值必须小于 model_timeout 设置的超时时间，否则忽略此设置。
-  error_triggers: # 错误触发器，当模型返回的消息包含错误触发器中的任意一个字符串时，该渠道会自动返回报错。选填
+  model_timeout: # 模型超时时间（秒），默认 100 秒
+    gpt-4o: 10 # 对以 gpt-4o 开头的模型都生效
+    claude-3-5-sonnet: 10
+    default: 10 # 不设置 default 时，会退化为使用环境变量 TIMEOUT
+    o1-mini: 30
+    o1-preview: 100
+  cooldown_period: 300 # 渠道级冷却时间（秒），设为 0 表示不启用冷却机制
+  rate_limit: 999999/min # 全局速率限制，支持 15/min,10/day 等组合
+  keepalive_interval: # 心跳间隔（秒），适合长推理场景
+    gemini-2.5-pro: 50
+  error_triggers: # 错误触发器，响应文本包含任意字符串时视为错误并触发冷却
     - The bot's usage is covered by the developer
     - process this request due to overload or policy
-  proxy: socks5://[username]:[password]@[ip]:[port] # 全局代理地址，选填。
-  model_price: # 模型价格，单位为美元/M tokens，选填。默认价格为 1,2，表示输入 1 美元/100 万 tokens，输出 2 美元/100 万 tokens。
+  proxy: socks5://[username]:[password]@[ip]:[port] # 全局代理地址
+  model_price: # 模型价格（美元 / 百万 tokens），格式：输入单价,输出单价
     gpt-4o: 1,2
     claude-3-5-sonnet: 0.12,0.48
     default: 1,2
 ```
 
+### 调度算法说明
 
-## Zoaholic 前端
+| 算法 | 说明 |
+|------|------|
+| `fixed_priority` | 固定优先级，始终使用第一个可用渠道（默认） |
+| `round_robin` | 轮询负载均衡，按顺序依次请求 |
+| `weighted_round_robin` | 加权轮询，按权重顺序请求 |
+| `lottery` | 抽奖式，按权重随机请求 |
+| `random` | 完全随机 |
+| `smart_round_robin` | 智能调度，基于历史成功率排序 |
 
-相比uni-api，本项目的着重表现就是内置了一个简单的前端，可以可视化方便的编辑功能。
+## 🔌 插件系统
 
-## 常见问题
+Zoaholic 支持通过插件扩展功能。插件可以添加新的渠道适配器、中间件、钩子等。
 
-- 为什么总是出现 `Error processing request or performing moral check: 404: No matching model found` 错误？
+### 创建插件
 
-将 ENABLE_MODERATION 设置为 false 将修复这个问题。当 ENABLE_MODERATION 为 true 时，API 必须能够使用 omni-moderation-latest 模型，如果你没有在提供商模型设置里面提供 omni-moderation-latest，将会报错找不到模型。
+在 `plugins/` 目录下创建 Python 文件：
 
-- 怎么优先请求某个渠道，怎么设置渠道的优先级？
+```python
+# plugins/my_channel.py
 
-直接在api_keys里面通过设置渠道顺序即可。不需要做其他设置，示例配置文件：
+PLUGIN_INFO = {
+    "name": "my_channel",
+    "version": "1.0.0",
+    "description": "我的自定义渠道",
+}
 
-```yaml
-providers:
-  - provider: ai1
-    base_url: https://xxx/v1/chat/completions
-    api: sk-xxx
+class MyChannelAdapter:
+    id = "my_channel"
+    type_name = "my_provider"
+    
+    @staticmethod
+    async def request_adapter(request, engine, provider, api_key=None):
+        url = provider.get('base_url')
+        headers = {'Authorization': f'Bearer {api_key}'}
+        payload = {...}
+        return url, headers, payload
+    
+    @staticmethod
+    async def stream_adapter(client, url, headers, payload, engine, model, timeout):
+        async with client.stream('POST', url, ...) as response:
+            async for line in response.aiter_lines():
+                yield f"data: {line}\n\n"
+        yield "data: [DONE]\n\n"
 
-  - provider: ai2
-    base_url: https://xxx/v1/chat/completions
-    api: sk-xxx
-
-api_keys:
-  - api: sk-1234
-    model:
-      - ai2/*
-      - ai1/*
+def setup(manager):
+    from core.channels.registry import register_channel
+    register_channel(
+        id="my_channel",
+        type_name="my_provider",
+        request_adapter=MyChannelAdapter.request_adapter,
+        stream_adapter=MyChannelAdapter.stream_adapter,
+    )
 ```
 
-这样设置则先请求 ai2，失败后请求 ai1。
+详细文档请参阅 [插件开发指南](docs/plugin-development.md)。
 
-- 各种调度算法背后的行为是怎样的？比如 fixed_priority，weighted_round_robin，lottery，random，round_robin, smart_round_robin？
+## 🖥️ 管理前端
 
-所有调度算法需要通过在配置文件的 api_keys.(api).preferences.SCHEDULING_ALGORITHM 设置为 fixed_priority，weighted_round_robin，lottery，random，round_robin, smart_round_robin 中的任意值来开启。
+Zoaholic 内置了一个 Material Design 3 风格的管理前端，提供：
 
-1. fixed_priority：固定优先级调度。所有请求永远执行第一个拥有用户请求的模型的渠道。报错时，会切换下一个渠道。这是默认的调度算法。
+- **控制台总览** - 查看系统状态和统计信息
+- **聊天测试** - 在线测试 API 调用
+- **渠道管理** - 查看和管理 API 渠道
+- **配置编辑** - 可视化编辑配置文件
 
-2. weighted_round_robin：加权轮训负载均衡，按照配置文件 api_keys.(api).model 设定的权重顺序请求拥有用户请求的模型的渠道。
+访问 `http://localhost:8000/` 即可使用前端界面。
 
-3. lottery：抽奖轮训负载均衡，按照配置文件 api_keys.(api).model 设置的权重随机请求拥有用户请求的模型的渠道。
+## ❓ 常见问题
 
-4. round_robin：轮训负载均衡，按照配置文件 api_keys.(api).model 的配置顺序请求拥有用户请求的模型的渠道。可以查看上一个问题，如何设置渠道的优先级。
+### 为什么出现 "No matching model found" 错误？
 
-5. smart_round_robin: 智能成功率调度。这是一个专为拥有大量 API Key（成百上千甚至数万个）的渠道设计的先进调度算法。它的核心机制是：
-    - **基于历史成功率排序**：算法会根据过去72小时内每个 API Key 的实际请求成功率进行动态排序。
-    - **智能分组与负载均衡**：为了避免流量永远只集中在少数几个“最优” Key 上，该算法会将所有 Key（包括从未用过的 Key）智能地分成若干组。它会将成功率最高的 Key 分布到每个组的开头，次高的分布到第二位，以此类推。这确保了负载能被均匀地分配给不同梯队的 Key，同时也保证了新 Key 或历史表现不佳的 Key 也有机会被尝试（探索）。
-    - **周期性自动更新**：当一个渠道的所有 Key 都被轮询过一遍之后，系统会自动触发一次重排序，从数据库中拉取最新的成功率数据，生成一个全新的、更优的 Key 序列。这个更新频率是自适应的：Key 池越大、请求量越小，更新周期就越长；反之则越短。
-    - **适用场景**：强烈建议拥有大量 API Key 的用户启用此算法，以最大化 Key 池的利用率和请求成功率。
+将 `ENABLE_MODERATION` 设置为 `false`。当开启道德审查时，需要配置 `omni-moderation-latest` 模型。
 
-- 应该怎么正确填写 base_url？
+### 如何设置渠道优先级？
 
-除了高级配置里面所展示的一些特殊的渠道，所有 OpenAI 格式的提供商需要把 base_url 填完整，也就是说 base_url 必须以 /v1/chat/completions 结尾。如果你使用的 GitHub models，base_url 应该填写为 https://models.inference.ai.azure.com/chat/completions，而不是 Azure 的 URL。
-
-对于 Azure 渠道，base_url 兼容以下几种写法：https://your-endpoint.services.ai.azure.com/models/chat/completions?api-version=2024-05-01-preview 和 https://your-endpoint.services.ai.azure.com/models/chat/completions，https://your-endpoint.openai.azure.com，推荐使用第一种写法。如果不显式指定 api-version，默认使用 2024-10-21 版本。
-
-- 模型超时时间是如何确认的？渠道级别的超时设置和全局模型超时设置的优先级是什么？
-
-渠道级别的超时设置优先级高于全局模型超时设置。优先级顺序：渠道级别模型超时设置 > 渠道级别默认超时设置 > 全局模型超时设置 > 全局默认超时设置 > 环境变量 TIMEOUT。
-
-通过调整模型超时时间，可以避免出现某些渠道请求超时报错的情况。如果你遇到 `{'error': '500', 'details': 'fetch_response_stream Read Response Timeout'}` 错误，请尝试增加模型超时时间。
-
-- api_key_rate_limit 是怎么工作的？我如何给多个模型设置相同的频率限制？
-
-如果你想同时给 gemini-1.5-pro-latest，gemini-1.5-pro，gemini-1.5-pro-001，gemini-1.5-pro-002 这四个模型设置相同的频率限制，可以这样设置：
-
-```yaml
-api_key_rate_limit:
-  gemini-1.5-pro: 1000/min
-```
-
-这会匹配所有含有 gemini-1.5-pro 字符串的模型。gemini-1.5-pro-latest，gemini-1.5-pro，gemini-1.5-pro-001，gemini-1.5-pro-002 这四个模型频率限制都会设置为 1000/min。api_key_rate_limit 字段配置的逻辑如下，这是一个示例配置文件：
-
-```yaml
-api_key_rate_limit:
-  gemini-1.5-pro: 1000/min
-  gemini-1.5-pro-002: 500/min
-```
-
-此时如果有一个使用模型 gemini-1.5-pro-002 的请求。
-
-首先，uni-api 会尝试精确匹配 api_key_rate_limit 的模型。如果刚好设置了 gemini-1.5-pro-002 的频率限制，则 gemini-1.5-pro-002 的频率限制则为 500/min，如果此时请求的模型不是 gemini-1.5-pro-002，而是 gemini-1.5-pro-latest，由于 api_key_rate_limit 没有设置 gemini-1.5-pro-latest 的频率限制，因此会寻找有没有前缀和 gemini-1.5-pro-latest 相同的模型被设置了，因此 gemini-1.5-pro-latest 的频率限制会被设置为 1000/min。
-
-- 我想设置渠道1和渠道2为随机轮训，uni-api 在渠道1和渠道2请求失败后才自动重试渠道3，怎么设置？
-
-uni-api 支持将 api key 本身作为渠道，可以通过这一特性对渠道进行分组管理。
+在 `api_keys` 中按顺序配置模型即可：
 
 ```yaml
 api_keys:
-  - api: sk-xxx1
+  - api: sk-xxx
     model:
-      - sk-xxx2/* # 渠道 1 2 采用随机轮训，失败后请求渠道3
-      - aws/* # 渠道3
-    preferences:
-      SCHEDULING_ALGORITHM: fixed_priority # 表示始终优先请求 api key：sk-xxx2 里面的渠道 1 2，失败后自动请求渠道 3
-
-  - api: sk-xxx2
-    model:
-      - anthropic/claude-3-7-sonnet # 渠道1
-      - openrouter/claude-3-7-sonnet # 渠道2
-    preferences:
-      SCHEDULING_ALGORITHM: random # 渠道 1 2 采用随机轮训
+      - ai2/*  # 优先请求
+      - ai1/*  # 备用
 ```
 
-- 我想使用 Cloudflare AI Gateway，怎么填写 base_url？
+### 如何正确填写 base_url？
 
-对于 gemini 渠道，Cloudflare AI Gateway 的 base_url 需要填写为 https://gateway.ai.cloudflare.com/v1/{account_id}/{gateway_name}/google-ai-studio/v1beta/openai/chat/completions ，{account_id} 和 {gateway_name} 需要替换为你的 Cloudflare 账户 ID 和 Gateway 名称。
+- OpenAI 格式：必须以 `/v1/chat/completions` 结尾
+- Azure：支持 `https://your-endpoint.openai.azure.com` 或完整 URL
+- Gemini：使用 `https://generativelanguage.googleapis.com/v1beta`
 
-对于 Vertex 渠道，Cloudflare AI Gateway 的 base_url 需要填写为 https://gateway.ai.cloudflare.com/v1/{account_id}/{gateway_name}/google-vertex-ai ，{account_id} 和 {gateway_name} 需要替换为你的 Cloudflare 账户 ID 和 Gateway 名称。
+### 模型超时时间优先级？
 
-- 什么时候 api key 的具有管理权限？
+渠道级别 > 全局配置 > 环境变量 `TIMEOUT`（默认 100 秒）
 
-1. 当只有一个 key 时，说明是自用，唯一的 key 获得管理权限，可以通过前端看到所有渠道敏感信息。
-2. 当存在两个以上的 key 时，必须指定其中一个或多个 key 的 role 字段为 admin，只有 role 为 admin 的 key 才有权限访问敏感信息。这样设计的原因是为了防止另外一个 key 的用户也能访问敏感信息。因此添加了 强制给 key 设置 role 为 admin 的设计。
+### 什么时候 API Key 具有管理权限？
 
-- 配置文件使用 koyeb 文件方式部署后，如果配置文件渠道没有写 model 字段，启动会报错，怎么解决？
+1. 只有一个 Key 时，自动获得管理权限
+2. 多个 Key 时，需要设置 `role: admin`
 
-koyeb 部署 uni-api 的 api.yaml 默认是 0644 权限，uni-api 没有写权限。当 uni-api 尝试获取 model 字段时，会修改配置文件，此时会报错。控制台输入 chmod 0777 api.yaml 赋予 uni-api 写权限即可。
+## 🔧 环境变量
 
-**致谢 (Acknowledgments):**
+| 变量 | 说明 | 默认值 |
+|------|------|--------|
+| `PORT` | 服务端口 | 8000 |
+| `TIMEOUT` | 默认超时时间（秒） | 100 |
+| `DEBUG` | 调试模式 | false |
+| `CONFIG_URL` | 远程配置文件 URL | - |
+| `DISABLE_DATABASE` | 禁用数据库 | false |
 
-*   感谢[Uni-API](https://github.com/yym68686/uni-api)项目为本项目做下的技术基础，这使得我们可以快速的二次开发添加功能。
+## 📁 项目结构
+
+```
+zoaholic/
+├── main.py              # 应用入口
+├── api.yaml             # 配置文件
+├── core/                # 核心模块
+│   ├── channels/        # 渠道适配器
+│   ├── plugins/         # 插件系统
+│   ├── handler.py       # 请求处理
+│   ├── routing.py       # 路由逻辑
+│   └── ...
+├── routes/              # API 路由
+│   ├── chat.py          # 聊天接口
+│   ├── models.py        # 模型接口
+│   └── ...
+├── plugins/             # 用户插件目录
+├── static/              # 前端静态文件
+└── docs/                # 文档
+```
+
+## 🤝 致谢
+
+- [uni-api](https://github.com/yym68686/uni-api) - 本项目的技术基础
+
+## 📄 许可证
+
+MIT License
