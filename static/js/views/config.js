@@ -838,7 +838,8 @@ const ConfigView = {
         const providerData = {
             index: providerIndex,
             name: originalProvider?.provider || originalProvider?.name || "",
-            base_url: originalProvider?.base_url || "https://api.openai.com/v1",
+            // 新建渠道时不自动填入具体 URL，留空并通过 placeholder 提示
+            base_url: originalProvider?.base_url || "",
             api_keys: [],
             models: [],
             modelMappings: [],
@@ -898,12 +899,15 @@ Object.assign(ConfigView, {
         basicSection.appendChild(engineSelectWrapper);
 
         ConfigView._loadChannelTypes(engineSelectWrapper, providerData, form);
-
+ 
         const nameWrap = UI.textField("渠道标识", "例如 openai", "text", providerData.name, { required: true });
         nameWrap.input.oninput = (e) => { providerData.name = e.target.value; };
         basicSection.appendChild(nameWrap.wrapper);
-
-        const urlWrap = UI.textField("上游 Base URL", "https://api.openai.com/v1", "text", providerData.base_url, { required: true });
+ 
+        // Base URL：占位文本会根据所选渠道的 default_base_url 动态更新，这里不再写死 OpenAI 示例
+        const urlWrap = UI.textField("上游 Base URL", "", "text", providerData.base_url, { required: true });
+        // 标记为配置用 Base URL 输入框，便于 _loadChannelTypes 动态更新 placeholder
+        urlWrap.input.setAttribute("data-config-base-url-input", "1");
         urlWrap.input.oninput = (e) => { providerData.base_url = e.target.value; };
         basicSection.appendChild(urlWrap.wrapper);
         form.appendChild(basicSection);
@@ -1068,18 +1072,37 @@ Object.assign(ConfigView, {
             providerData.engine = channelOptions[0].value;
         }
         
-        const engineSelect = UI.select("渠道类型", channelOptions, providerData.engine, (val) => {
-            providerData.engine = val;
-            const selected = channelOptions.find(ch => ch.value === val);
-            if (selected?.defaultBaseUrl && !providerData.base_url) {
-                const urlInput = form.querySelector('input[placeholder*="api.openai.com"]');
-                if (urlInput) {
-                    urlInput.value = selected.defaultBaseUrl;
-                    providerData.base_url = selected.defaultBaseUrl;
+        // 根据当前选中的渠道，更新 Base URL 输入框的 placeholder 为后端返回的 default_base_url
+        const applyDefaultBaseUrlPlaceholder = (engineValue) => {
+            const selected = channelOptions.find(ch => ch.value === engineValue);
+            const urlInput = form.querySelector('input[data-config-base-url-input="1"]');
+            if (!urlInput || !selected) return;
+            const defaultUrl = selected.defaultBaseUrl || "";
+            if (defaultUrl) {
+                urlInput.dataset.defaultBaseUrl = defaultUrl;
+
+                if (!urlInput.dataset.baseUrlPlaceholderBound) {
+                    urlInput.dataset.baseUrlPlaceholderBound = "1";
+
+                    urlInput.addEventListener("focus", () => {
+                        if (!urlInput.value) {
+                            urlInput.placeholder = urlInput.dataset.defaultBaseUrl || "";
+                        }
+                    });
                 }
             }
+        };
+        
+        const engineSelect = UI.select("渠道类型", channelOptions, providerData.engine, (val) => {
+            providerData.engine = val;
+            applyDefaultBaseUrlPlaceholder(val);
         });
         wrapper.appendChild(engineSelect.wrapper);
+        
+        // 初始化时也应用一次 placeholder（新建渠道时 base_url 为空，只展示示例）
+        if (providerData.engine) {
+            applyDefaultBaseUrlPlaceholder(providerData.engine);
+        }
     },
 
     /**
@@ -1411,6 +1434,42 @@ Object.assign(ConfigView, {
         proxyWrap.input.oninput = (e) => { prefs.proxy = e.target.value; };
         section.appendChild(proxyWrap.wrapper);
 
+        // 自定义 HTTP 请求头 (headers) - 使用 JSON 对象形式编辑
+        const headersInitial = prefs.headers ? JSON.stringify(prefs.headers, null, 2) : "";
+        prefs._headersText = headersInitial;
+        const headersArea = UI.textArea(
+            "自定义请求头 (headers)",
+            '{\n  "Custom-Header-1": "Value-1",\n  "Custom-Header-2": "Value-2"\n}',
+            headersInitial,
+            3,
+            {
+                helperText: "可选：以 JSON 对象形式填写，将合并到每次请求的 HTTP 头中",
+                variant: "outlined"
+            }
+        );
+        headersArea.input.classList.add("font-mono");
+        headersArea.input.oninput = (e) => { prefs._headersText = e.target.value; };
+        section.appendChild(headersArea.wrapper);
+
+        // 请求体参数覆写 (post_body_parameter_overrides) - 使用 JSON 对象形式编辑
+        const overridesInitial = prefs.post_body_parameter_overrides
+            ? JSON.stringify(prefs.post_body_parameter_overrides, null, 2)
+            : "";
+        prefs._postBodyOverridesText = overridesInitial;
+        const overridesArea = UI.textArea(
+            "请求体参数覆写 (post_body_parameter_overrides)",
+            '{\n  "all": {\n    "temperature": 0.1,\n    "top_p": 0.7\n  },\n  "gemini-2.5-pro-search": {\n    "temperature": 1.0\n  }\n}',
+            overridesInitial,
+            4,
+            {
+                helperText: "可选：以 JSON 对象形式填写；all 字段对该渠道所有模型生效，单独模型名键会覆盖 all 中的同名字段",
+                variant: "outlined"
+            }
+        );
+        overridesArea.input.classList.add("font-mono");
+        overridesArea.input.oninput = (e) => { prefs._postBodyOverridesText = e.target.value; };
+        section.appendChild(overridesArea.wrapper);
+
         section.appendChild(UI.switch("启用 Tools 能力", prefs.tools !== false, (checked) => { prefs.tools = checked; }));
         form.appendChild(section);
     },
@@ -1446,11 +1505,65 @@ Object.assign(ConfigView, {
 
         const prefs = providerData.preferences || {};
         const newPrefs = {};
-        if (prefs.weight) { const n = Number(prefs.weight); if (!isNaN(n)) newPrefs.weight = n; }
-        if (prefs.cooldown_period) { const n = Number(prefs.cooldown_period); if (!isNaN(n)) newPrefs.cooldown_period = n; }
+
+        // 数值类偏好：权重与冷却时间
+        if (prefs.weight !== undefined && prefs.weight !== null && String(prefs.weight).trim() !== "") {
+            const n = Number(prefs.weight);
+            if (!isNaN(n)) newPrefs.weight = n;
+        }
+        if (prefs.cooldown_period !== undefined && prefs.cooldown_period !== null && String(prefs.cooldown_period).trim() !== "") {
+            const n = Number(prefs.cooldown_period);
+            if (!isNaN(n)) newPrefs.cooldown_period = n;
+        }
+
+        // 已有的调度/代理/Tools 开关
         if (prefs.api_key_schedule_algorithm) newPrefs.api_key_schedule_algorithm = prefs.api_key_schedule_algorithm;
-        if (prefs.proxy?.trim()) newPrefs.proxy = prefs.proxy.trim();
+        if (typeof prefs.proxy === "string" && prefs.proxy.trim()) newPrefs.proxy = prefs.proxy.trim();
         if (typeof prefs.tools === "boolean") newPrefs.tools = prefs.tools;
+
+        // 自定义请求头 (headers) - 从 JSON 文本解析
+        if (prefs._headersText && prefs._headersText.trim()) {
+            try {
+                const headersObj = JSON.parse(prefs._headersText);
+                if (headersObj && typeof headersObj === "object" && !Array.isArray(headersObj)) {
+                    newPrefs.headers = headersObj;
+                } else {
+                    UI.snackbar("自定义请求头必须是 JSON 对象", null, null, { variant: "error" });
+                    return false;
+                }
+            } catch (e) {
+                UI.snackbar(`自定义请求头 JSON 解析失败: ${e.message}`, null, null, { variant: "error" });
+                return false;
+            }
+        }
+
+        // 请求体参数覆写 (post_body_parameter_overrides) - 从 JSON 文本解析
+        if (prefs._postBodyOverridesText && prefs._postBodyOverridesText.trim()) {
+            try {
+                const overridesObj = JSON.parse(prefs._postBodyOverridesText);
+                if (overridesObj && typeof overridesObj === "object") {
+                    newPrefs.post_body_parameter_overrides = overridesObj;
+                } else {
+                    UI.snackbar("请求体参数覆写必须是 JSON 对象", null, null, { variant: "error" });
+                    return false;
+                }
+            } catch (e) {
+                UI.snackbar(`请求体参数覆写 JSON 解析失败: ${e.message}`, null, null, { variant: "error" });
+                return false;
+            }
+        }
+
+        // 保留未在表单中直接编辑的其他偏好字段（如 api_key_rate_limit、model_timeout 等）
+        Object.keys(prefs).forEach((key) => {
+            if (key.startsWith("_")) return; // 内部临时字段
+            if (["weight", "cooldown_period", "api_key_schedule_algorithm", "proxy", "tools", "headers", "post_body_parameter_overrides"].includes(key)) {
+                // 上面已处理
+                return;
+            }
+            if (key in newPrefs) return;
+            newPrefs[key] = prefs[key];
+        });
+
         target.preferences = newPrefs;
 
         if (providerIndex >= 0) newProviders[providerIndex] = target;
