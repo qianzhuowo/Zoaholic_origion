@@ -60,7 +60,7 @@ async def api_config_update(
 
     if updated:
         app.state.config, app.state.api_keys_db, app.state.api_list = await update_config(
-            app.state.config, use_config_url=False
+            app.state.config, use_config_url=False, skip_model_fetch=True
         )
 
     return JSONResponse(content={"message": "API config updated"})

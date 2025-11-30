@@ -319,6 +319,18 @@ const AdminView = {
         const modelsTd = UI.el("td", "px-4 py-3 align-top");
         const modelsText = UI.el("div", "text-body-medium text-md-on-surface-variant line-clamp-2", info.modelSummary);
         modelsTd.appendChild(modelsText);
+        // 分组展示
+        const keyGroups = Array.isArray(apiKeyObj?.groups)
+            ? apiKeyObj.groups
+            : (typeof apiKeyObj?.group === "string" ? [apiKeyObj.group] : (apiKeyObj?.preferences?.group ? [apiKeyObj.preferences.group] : ["default"]));
+        const groupsRow = UI.el("div", "mt-1 flex flex-wrap gap-1");
+        keyGroups.forEach(g => {
+            const chip = UI.el("span", "inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md-full bg-md-secondary-container text-md-on-secondary-container text-label-small");
+            chip.appendChild(UI.icon("folder", "text-sm"));
+            chip.appendChild(document.createTextNode(g));
+            groupsRow.appendChild(chip);
+        });
+        modelsTd.appendChild(groupsRow);
 
         // Status column
         const statusTd = UI.el("td", "px-4 py-3 text-center align-top");
@@ -408,6 +420,19 @@ const AdminView = {
         );
         card.appendChild(modelsRow);
 
+        // 分组
+        const gArr = Array.isArray(apiKeyObj?.groups)
+            ? apiKeyObj.groups
+            : (typeof apiKeyObj?.group === "string" ? [apiKeyObj.group] : (apiKeyObj?.preferences?.group ? [apiKeyObj.preferences.group] : ["default"]));
+        const groupsRow = UI.el("div", "flex items-center flex-wrap gap-1 mt-1");
+        gArr.forEach(g => {
+            const chip = UI.el("span", "inline-flex items-center gap-1 px-2 py-0.5 rounded-md-full bg-md-secondary-container text-md-on-secondary-container text-label-small");
+            chip.appendChild(UI.icon("folder", "text-sm"));
+            chip.appendChild(document.createTextNode(g));
+            groupsRow.appendChild(chip);
+        });
+        card.appendChild(groupsRow);
+
         if (info.createdAt) {
             card.appendChild(
                 UI.el(
@@ -495,11 +520,26 @@ const AdminView = {
         if (typeof rawPrefs.credits === "number") {
             creditsInput = String(rawPrefs.credits);
         }
+        // 初始化分组，支持字符串或数组，默认 default
+        let groups = [];
+        if (originalKey) {
+            if (Array.isArray(originalKey.groups)) {
+                groups = originalKey.groups.slice();
+            } else if (typeof originalKey.group === "string" && originalKey.group.trim()) {
+                groups = [originalKey.group.trim()];
+            } else if (originalKey.preferences && typeof originalKey.preferences.group === "string" && originalKey.preferences.group.trim()) {
+                groups = [originalKey.preferences.group.trim()];
+            }
+        }
+        if (!Array.isArray(groups) || groups.length === 0) {
+            groups = ["default"];
+        }
         return {
             index: keyIndex,
             api: originalKey?.api || "",
             role: originalKey?.role || "",
             models,
+            groups,
             preferences: {
                 ...rawPrefs,
                 _creditsInput: creditsInput,
@@ -578,6 +618,58 @@ const AdminView = {
             keyData.role = e.target.value.trim();
         };
         basicSection.appendChild(roleField.wrapper);
+
+        // 分组（可多选/多条）
+        if (!Array.isArray(keyData.groups)) {
+            keyData.groups = (typeof keyData.groups === "string" && keyData.groups.trim())
+                ? [keyData.groups.trim()]
+                : ["default"];
+        }
+        const groupsTitle = UI.el("div", "text-label-medium text-md-on-surface mt-1", "分组");
+        basicSection.appendChild(groupsTitle);
+
+        const groupsContainer = UI.el("div", "flex flex-wrap gap-2");
+        const renderGroupChips = () => {
+            groupsContainer.innerHTML = "";
+            const groups = Array.isArray(keyData.groups) ? keyData.groups : [];
+            if (!groups.length) keyData.groups = ["default"];
+            keyData.groups.forEach((g, i) => {
+                const chip = UI.el("div", "inline-flex items-center gap-2 pl-3 pr-1 py-1 rounded-md-full bg-md-secondary-container text-md-on-secondary-container text-label-medium group");
+                chip.appendChild(UI.icon("folder", "text-sm"));
+                const nameEl = UI.el("span", "", g);
+                chip.appendChild(nameEl);
+                const btnGroup = UI.el("div", "flex items-center gap-1 ml-1");
+                const delBtn = UI.el("button", "w-5 h-5 rounded-full flex items-center justify-center hover:bg-md-on-secondary-container/12 transition-colors");
+                delBtn.appendChild(UI.icon("close", "text-sm"));
+                delBtn.onclick = (e) => {
+                    e.stopPropagation();
+                    keyData.groups.splice(i, 1);
+                    if (keyData.groups.length === 0) keyData.groups = ["default"];
+                    renderGroupChips();
+                };
+                btnGroup.appendChild(delBtn);
+                chip.appendChild(btnGroup);
+                groupsContainer.appendChild(chip);
+            });
+        };
+        renderGroupChips();
+        basicSection.appendChild(groupsContainer);
+
+        const addGroupField = UI.textField("添加分组", "例如 default 或 premium", "text", "");
+        const addGroupInput = addGroupField.input;
+        addGroupInput.onkeydown = (e) => {
+            if (e.key === "Enter") {
+                const val = (addGroupInput.value || "").trim();
+                if (!val) return;
+                if (!Array.isArray(keyData.groups)) keyData.groups = [];
+                if (!keyData.groups.includes(val)) {
+                    keyData.groups.push(val);
+                }
+                addGroupInput.value = "";
+                renderGroupChips();
+            }
+        };
+        basicSection.appendChild(addGroupField.wrapper);
 
         form.appendChild(basicSection);
 
@@ -674,13 +766,20 @@ const AdminView = {
                 : { api: "", model: [], preferences: {} };
 
         target.api = apiValue;
-
+        
         if (keyData.role && keyData.role.trim()) {
             target.role = keyData.role.trim();
         } else {
             delete target.role;
         }
 
+        // 分组
+        if (Array.isArray(keyData.groups) && keyData.groups.length) {
+            target.groups = keyData.groups.slice();
+        } else {
+            target.groups = ["default"];
+        }
+        
         // 模型规则
         const models = Array.isArray(keyData.models) ? keyData.models.filter(Boolean) : [];
         if (models.length > 0) {

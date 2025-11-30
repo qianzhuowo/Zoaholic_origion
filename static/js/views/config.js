@@ -143,12 +143,16 @@ const ConfigView = {
         // 信息区域：分组、类型、优先级
         const infoSection = UI.el("div", "flex flex-wrap gap-2 mb-4");
         
-        // 分组
-        const group = provider.group || provider.preferences?.group || "默认";
-        const groupChip = UI.el("span", "inline-flex items-center gap-1.5 px-3 py-1 rounded-md-full bg-md-secondary-container text-md-on-secondary-container text-label-medium");
-        groupChip.appendChild(UI.icon("folder", "text-sm"));
-        groupChip.appendChild(document.createTextNode(group));
-        infoSection.appendChild(groupChip);
+        // 分组 - 多组支持
+        const groups = Array.isArray(provider.groups)
+            ? provider.groups
+            : (provider.group ? [provider.group] : (provider.preferences?.group ? [provider.preferences.group] : ["默认"]));
+        groups.forEach(g => {
+            const chip = UI.el("span", "inline-flex items-center gap-1.5 px-3 py-1 rounded-md-full bg-md-secondary-container text-md-on-secondary-container text-label-medium");
+            chip.appendChild(UI.icon("folder", "text-sm"));
+            chip.appendChild(document.createTextNode(g));
+            infoSection.appendChild(chip);
+        });
         
         // 类型
         const engine = provider.engine || "openai";
@@ -224,13 +228,17 @@ const ConfigView = {
         nameContent.appendChild(UI.el("span", "text-body-large text-md-on-surface font-medium", name));
         nameTd.appendChild(nameContent);
 
-        // 分组 - 使用带图标的 Chip 样式
-        const group = provider.group || provider.preferences?.group || "默认";
+        // 分组 - 多组支持
+        const groups = Array.isArray(provider.groups)
+            ? provider.groups
+            : (provider.group ? [provider.group] : (provider.preferences?.group ? [provider.preferences.group] : ["默认"]));
         const groupTd = UI.el("td", "px-4 py-3");
-        const groupChip = UI.el("span", "inline-flex items-center gap-1.5 px-3 py-1 rounded-md-full bg-md-secondary-container text-md-on-secondary-container text-label-medium");
-        groupChip.appendChild(UI.icon("folder", "text-sm"));
-        groupChip.appendChild(document.createTextNode(group));
-        groupTd.appendChild(groupChip);
+        groups.forEach(g => {
+            const chip = UI.el("span", "inline-flex items-center gap-1.5 px-3 py-1 mr-1 rounded-md-full bg-md-secondary-container text-md-on-secondary-container text-label-medium");
+            chip.appendChild(UI.icon("folder", "text-sm"));
+            chip.appendChild(document.createTextNode(g));
+            groupTd.appendChild(chip);
+        });
 
         // 类型 (engine) - 使用带图标的 Chip 样式
         const engine = provider.engine || "openai";
@@ -927,6 +935,20 @@ const ConfigView = {
                 });
             }
         }
+        // 初始化分组：支持字符串或数组，默认 default
+        (function () {
+            let g = providerData.groups;
+            if (!g) {
+                const orig = originalProvider;
+                g = (orig && Array.isArray(orig.groups)) ? orig.groups.slice()
+                    : (orig && typeof orig.group === "string" && orig.group.trim() ? [orig.group.trim()]
+                        : (orig && orig.preferences && typeof orig.preferences.group === "string" && orig.preferences.group.trim() ? [orig.preferences.group.trim()] : null));
+            }
+            if (!Array.isArray(g)) g = ["default"];
+            g = g.map(x => (typeof x === "string" ? x.trim() : x)).filter(Boolean);
+            if (!g.length) g = ["default"];
+            providerData.groups = g;
+        })();
         return providerData;
     },
 };
@@ -965,6 +987,59 @@ Object.assign(ConfigView, {
         urlWrap.input.setAttribute("data-config-base-url-input", "1");
         urlWrap.input.oninput = (e) => { providerData.base_url = e.target.value; };
         basicSection.appendChild(urlWrap.wrapper);
+
+        // 分组编辑 - 多组支持
+        if (!Array.isArray(providerData.groups)) {
+            providerData.groups = (typeof providerData.groups === "string" && providerData.groups.trim())
+                ? [providerData.groups.trim()]
+                : ["default"];
+        }
+        const groupsTitle = UI.el("div", "text-label-medium text-md-on-surface", "分组");
+        basicSection.appendChild(groupsTitle);
+
+        const groupsContainer = UI.el("div", "flex flex-wrap gap-2");
+        const renderGroupChips = () => {
+            groupsContainer.innerHTML = "";
+            const groups = Array.isArray(providerData.groups) ? providerData.groups : [];
+            if (!groups.length) providerData.groups = ["default"];
+            providerData.groups.forEach((g, i) => {
+                const chip = UI.el("div", "inline-flex items-center gap-2 pl-3 pr-1 py-1 rounded-md-full bg-md-secondary-container text-md-on-secondary-container text-label-medium group");
+                chip.appendChild(UI.icon("folder", "text-sm"));
+                const nameEl = UI.el("span", "", g);
+                chip.appendChild(nameEl);
+                const btnGroup = UI.el("div", "flex items-center gap-1 ml-1");
+                const delBtn = UI.el("button", "w-5 h-5 rounded-full flex items-center justify-center hover:bg-md-on-secondary-container/12 transition-colors");
+                delBtn.appendChild(UI.icon("close", "text-sm"));
+                delBtn.onclick = (e) => {
+                    e.stopPropagation();
+                    providerData.groups.splice(i, 1);
+                    if (providerData.groups.length === 0) providerData.groups = ["default"];
+                    renderGroupChips();
+                };
+                btnGroup.appendChild(delBtn);
+                chip.appendChild(btnGroup);
+                groupsContainer.appendChild(chip);
+            });
+        };
+        renderGroupChips();
+        basicSection.appendChild(groupsContainer);
+
+        const addGroupField = UI.textField("添加分组", "例如 default 或 premium", "text", "");
+        const addGroupInput = addGroupField.input;
+        addGroupInput.onkeydown = (e) => {
+            if (e.key === "Enter") {
+                const val = (addGroupInput.value || "").trim();
+                if (!val) return;
+                if (!Array.isArray(providerData.groups)) providerData.groups = [];
+                if (!providerData.groups.includes(val)) {
+                    providerData.groups.push(val);
+                }
+                addGroupInput.value = "";
+                renderGroupChips();
+            }
+        };
+        basicSection.appendChild(addGroupField.wrapper);
+
         form.appendChild(basicSection);
 
                 // API Keys Section - 列表输入框
@@ -1871,6 +1946,13 @@ Object.assign(ConfigView, {
         else delete target.engine;
         target.image = providerData.image;
 
+        // 分组
+        if (Array.isArray(providerData.groups) && providerData.groups.length) {
+            target.groups = providerData.groups.slice();
+        } else {
+            target.groups = ["default"];
+        }
+        
         const prefs = providerData.preferences || {};
         const newPrefs = {};
 

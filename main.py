@@ -242,10 +242,14 @@ app.add_middleware(
     allow_headers=["*"],  # 允许所有头部字段
 )
 
-app.add_middleware(StatsMiddleware)
+app.add_middleware(StatsMiddleware, debug=is_debug)
 
 @app.middleware("http")
 async def ensure_config(request: Request, call_next):
+    # 避免在 /v1 请求内进行自调用，防止递归卡死
+    if request.url.path.startswith("/v1"):
+        return await call_next(request)
+
     if app and app.state.api_keys_db and not hasattr(app.state, "models_list"):
         app.state.models_list = {}
         for item in app.state.api_keys_db:
@@ -262,10 +266,7 @@ async def ensure_config(request: Request, call_next):
                         # 发送GET请求获取模型列表
                         base_url = "http://127.0.0.1:8000/v1/models"
                         async with app.state.client_manager.get_client(base_url) as client:
-                            response = await client.get(
-                                base_url,
-                                headers=headers
-                            )
+                            response = await client.get(base_url, headers=headers)
                             if response.status_code == 200:
                                 models_data = response.json()
                                 # 将获取到的模型添加到models_list

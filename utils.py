@@ -77,7 +77,7 @@ def save_api_yaml(config_data):
     with open(API_YAML_PATH, "w", encoding="utf-8") as f:
         yaml.dump(processed_data, f)
 
-async def update_config(config_data, use_config_url=False):
+async def update_config(config_data, use_config_url=False, skip_model_fetch=False):
     for index, provider in enumerate(config_data['providers']):
         if provider.get('project_id'):
             if "google-vertex-ai" not in provider.get("base_url", ""):
@@ -118,7 +118,7 @@ async def update_config(config_data, use_config_url=False):
                 "text-embedding-3-large",
             ]
 
-        if not provider.get("model"):
+        if (not skip_model_fetch) and not provider.get("model"):
             model_list = await update_initial_model(provider)
             if model_list:
                 provider["model"] = model_list
@@ -129,7 +129,22 @@ async def update_config(config_data, use_config_url=False):
             provider["tools"] = True
 
         provider["_model_dict_cache"] = get_model_dict(provider)
-
+        
+        # 规范化渠道分组字段，支持单值与多值
+        groups = provider.get("groups")
+        if groups is None:
+            if isinstance(provider.get("group"), (str, list)):
+                groups = provider.get("group")
+            elif safe_get(provider, "preferences", "group", default=None):
+                groups = safe_get(provider, "preferences", "group", default=None)
+        if isinstance(groups, str):
+            groups = [groups]
+        elif not isinstance(groups, list):
+            groups = ["default"]
+        if not groups:
+            groups = ["default"]
+        provider["groups"] = groups
+        
         config_data['providers'][index] = provider
 
     for index, api_key in enumerate(config_data['api_keys']):
@@ -141,6 +156,21 @@ async def update_config(config_data, use_config_url=False):
     for index, api_key in enumerate(config_data['api_keys']):
         weights_dict = {}
         models = []
+        
+        # 规范化 API Key 分组字段，支持单值与多值
+        key_groups = api_key.get("groups")
+        if key_groups is None:
+            if isinstance(api_key.get("group"), (str, list)):
+                key_groups = api_key.get("group")
+            elif safe_get(api_key, "preferences", "group", default=None):
+                key_groups = safe_get(api_key, "preferences", "group", default=None)
+        if isinstance(key_groups, str):
+            key_groups = [key_groups]
+        elif not isinstance(key_groups, list):
+            key_groups = ["default"]
+        if not key_groups:
+            key_groups = ["default"]
+        config_data['api_keys'][index]['groups'] = key_groups
 
         # 确保api字段为字符串类型
         if "api" in api_key:
@@ -466,11 +496,19 @@ def post_all_models(api_index, config, api_list, models_list):
         """将上游原名统一转换为展示别名；若无映射，则保持原名"""
         return upstream_to_alias.get(name, name)
 
+    # 允许分组集合：仅返回与当前 API Key 分组有交集的渠道模型
+    api_key_groups = safe_get(config, 'api_keys', api_index, 'groups', default=['default'])
+    if isinstance(api_key_groups, str):
+        api_key_groups = [api_key_groups]
+    if not isinstance(api_key_groups, list) or not api_key_groups:
+        api_key_groups = ['default']
+    allowed_groups = set(api_key_groups)
+    
     if config['api_keys'][api_index]['model']:
         for model in config['api_keys'][api_index]['model']:
             if model == "all":
-                # 如果模型名为 all，则返回所有模型（统一为别名并去重）
-                all_models = get_all_models(config)
+                # 如果模型名为 all，则返回所有模型（统一为别名并去重），并按分组过滤
+                all_models = get_all_models(config, allowed_groups)
                 final_models = []
                 seen = set()
                 for item in all_models:
@@ -486,21 +524,41 @@ def post_all_models(api_index, config, api_list, models_list):
                 if model == "*":
                     if provider.startswith("sk-") and provider in api_list:
                         # 将聚合器返回的上游名转换为展示别名，避免出现“本名+重定向名”重复
-                        for model_item in models_list[provider]:
-                            disp = normalize_model_name(model_item)
-                            if disp not in unique_models:
-                                unique_models.add(disp)
-                                model_info = {
-                                    "id": disp,
-                                    "object": "model",
-                                    "created": 1720524448858,
-                                    "owned_by": "Zoaholic"
-                                }
-                                all_models.append(model_info)
+                        # 分组过滤：仅当本地聚合器 Key 与当前请求 Key 分组有交集时才包含
+                        try:
+                            local_index = api_list.index(provider)
+                            p_groups = safe_get(config, 'api_keys', local_index, 'groups', default=['default'])
+                        except ValueError:
+                            p_groups = ['default']
+                        if isinstance(p_groups, str):
+                            p_groups = [p_groups] if p_groups else ['default']
+                        if not isinstance(p_groups, list) or not p_groups:
+                            p_groups = ['default']
+                        if allowed_groups.intersection(set(p_groups)):
+                            for model_item in models_list[provider]:
+                                disp = normalize_model_name(model_item)
+                                if disp not in unique_models:
+                                    unique_models.add(disp)
+                                    model_info = {
+                                        "id": disp,
+                                        "object": "model",
+                                        "created": 1720524448858,
+                                        "owned_by": "Zoaholic"
+                                    }
+                                    all_models.append(model_info)
                     else:
                         for provider_item in config["providers"]:
                             if provider_item['provider'] != provider:
                                 continue
+                            # 分组过滤：provider 必须与当前 Key 分组有交集
+                            p_groups = provider_item.get("groups") or ["default"]
+                            if isinstance(p_groups, str):
+                                p_groups = [p_groups] if p_groups else ["default"]
+                            if not isinstance(p_groups, list) or not p_groups:
+                                p_groups = ["default"]
+                            if not allowed_groups.intersection(set(p_groups)):
+                                continue
+
                             model_dict = get_model_dict(provider_item)
                             # 剔除被重定向的上游原名，仅保留展示别名
                             upstream_candidates = {v for k, v in model_dict.items() if v != k}
@@ -520,22 +578,43 @@ def post_all_models(api_index, config, api_list, models_list):
                 else:
                     if provider.startswith("sk-") and provider in api_list:
                         # 支持别名/上游名两种写法，统一输出为展示别名
-                        upstream_name = alias_to_upstream.get(model, model)
-                        if upstream_name in models_list[provider]:
-                            disp = normalize_model_name(upstream_name)
-                            if disp not in unique_models:
-                                unique_models.add(disp)
-                                model_info = {
-                                    "id": disp,
-                                    "object": "model",
-                                    "created": 1720524448858,
-                                    "owned_by": "Zoaholic"
-                                }
-                                all_models.append(model_info)
+                        # 分组过滤：仅当本地聚合器 Key 与当前请求 Key 分组有交集时才包含
+                        try:
+                            local_index = api_list.index(provider)
+                            p_groups = safe_get(config, 'api_keys', local_index, 'groups', default=['default'])
+                        except ValueError:
+                            p_groups = ['default']
+                        if isinstance(p_groups, str):
+                            p_groups = [p_groups] if p_groups else ['default']
+                        if not isinstance(p_groups, list) or not p_groups:
+                            p_groups = ['default']
+
+                        if allowed_groups.intersection(set(p_groups)):
+                            upstream_name = alias_to_upstream.get(model, model)
+                            if upstream_name in models_list[provider]:
+                                disp = normalize_model_name(upstream_name)
+                                if disp not in unique_models:
+                                    unique_models.add(disp)
+                                    model_info = {
+                                        "id": disp,
+                                        "object": "model",
+                                        "created": 1720524448858,
+                                        "owned_by": "Zoaholic"
+                                    }
+                                    all_models.append(model_info)
                     else:
                         for provider_item in config["providers"]:
                             if provider_item['provider'] != provider:
                                 continue
+                            # 分组过滤：provider 必须与当前 Key 分组有交集
+                            p_groups = provider_item.get("groups") or ["default"]
+                            if isinstance(p_groups, str):
+                                p_groups = [p_groups] if p_groups else ["default"]
+                            if not isinstance(p_groups, list) or not p_groups:
+                                p_groups = ["default"]
+                            if not allowed_groups.intersection(set(p_groups)):
+                                continue
+
                             model_dict = get_model_dict(provider_item)
                             # 剔除被重定向的上游原名后再进行精确匹配
                             upstream_candidates = {v for k, v in model_dict.items() if v != k}
@@ -578,11 +657,21 @@ def post_all_models(api_index, config, api_list, models_list):
             final_models.append(item)
     return final_models
 
-def get_all_models(config):
+def get_all_models(config, allowed_groups=None):
     all_models = []
     unique_models = set()
-
+    
     for provider in config["providers"]:
+        # 分组过滤：如果提供了允许分组集合，需存在交集
+        if allowed_groups is not None:
+            p_groups = provider.get("groups") or ["default"]
+            if isinstance(p_groups, str):
+                p_groups = [p_groups] if p_groups else ["default"]
+            if not isinstance(p_groups, list) or not p_groups:
+                p_groups = ["default"]
+            if not allowed_groups.intersection(set(p_groups)):
+                continue
+
         # 使用映射缓存（若不存在则回退到实时计算）
         model_dict = provider.get("_model_dict_cache") or get_model_dict(provider)
         # 识别被重定向的上游原名（出现在映射值中的项且与键不同）
@@ -600,7 +689,7 @@ def get_all_models(config):
                     "owned_by": "Zoaholic"
                 }
                 all_models.append(model_info)
-
+    
     return all_models
 
 async def query_channel_key_stats(
