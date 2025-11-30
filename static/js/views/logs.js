@@ -405,11 +405,11 @@ const LogsView = {
             "inline-flex items-center gap-1 px-2 py-0.5 rounded-md-full text-label-small"
         );
         if (isFlagged) {
-            chip.classList.add("bg-md-error-container", "text-md-on-error-container");
+            chip.classList.add("md-chip-status-error");
             chip.appendChild(UI.icon("report", "text-sm"));
             chip.appendChild(document.createTextNode("Flagged"));
         } else {
-            chip.classList.add("bg-md-success-container", "text-md-on-success-container");
+            chip.classList.add("md-chip-status-healthy");
             chip.appendChild(UI.icon("check_circle", "text-sm"));
             chip.appendChild(document.createTextNode("OK"));
         }

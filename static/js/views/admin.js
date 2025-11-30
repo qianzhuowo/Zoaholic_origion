@@ -243,11 +243,11 @@ const AdminView = {
             "inline-flex items-center gap-1 px-2 py-0.5 rounded-md-full text-label-small"
         );
         if (enabled === false) {
-            chip.classList.add("bg-md-error-container", "text-md-on-error-container");
+            chip.classList.add("md-chip-status-error");
             chip.appendChild(UI.icon("block", "text-sm"));
             chip.appendChild(document.createTextNode("已停用"));
         } else if (enabled === true) {
-            chip.classList.add("bg-md-success-container", "text-md-on-success-container");
+            chip.classList.add("md-chip-status-healthy");
             chip.appendChild(UI.icon("check_circle", "text-sm"));
             chip.appendChild(document.createTextNode("启用中"));
         } else {
@@ -338,7 +338,7 @@ const AdminView = {
 
         // Actions column
         const actionsTd = UI.el("td", "px-4 py-3 align-top");
-        const actionsGroup = UI.el("div", "flex items-center justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity");
+        const actionsGroup = UI.el("div", "flex items-center justify-end gap-1 md-hover-fade-in");
 
         const editBtn = UI.iconBtn(
             "edit",

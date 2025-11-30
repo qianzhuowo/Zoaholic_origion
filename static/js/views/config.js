@@ -267,7 +267,7 @@ const ConfigView = {
         priorityInput.type = "number";
         priorityInput.min = "0";
         priorityInput.value = weight;
-        priorityInput.className = "w-16 px-2 py-1 bg-md-surface border border-md-outline rounded-md-xs font-mono text-body-medium text-md-on-surface text-center focus:outline-none focus:border-md-primary focus:border-2 transition-all hover:border-md-primary/50";
+        priorityInput.className = "w-16 md-input md-input-compact md-input-center md-input-mono text-body-medium";
         priorityInput.onclick = (e) => e.stopPropagation();
         priorityInput.onchange = (e) => {
             const newWeight = parseInt(e.target.value) || 0;
@@ -277,7 +277,7 @@ const ConfigView = {
 
         // 操作按钮组
         const actionsTd = UI.el("td", "px-4 py-3");
-        const actionsGroup = UI.el("div", "flex items-center justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity");
+        const actionsGroup = UI.el("div", "flex items-center justify-end gap-1 md-hover-fade-in");
 
         // 测试按钮
         const testBtn = UI.iconBtn("speed", () => ConfigView._testProvider(provider, index), "standard", { tooltip: "测试连接" });
@@ -411,7 +411,7 @@ const ConfigView = {
             concurrencyInput.min = "1";
             concurrencyInput.max = "10";
             concurrencyInput.value = testState.concurrency;
-            concurrencyInput.className = "w-12 px-2 py-1.5 bg-md-surface border border-md-outline rounded-md-xs text-body-small text-md-on-surface text-center focus:outline-none focus:border-md-primary focus:border-2";
+            concurrencyInput.className = "w-12 md-input md-input-compact md-input-center text-body-small";
             concurrencyInput.oninput = (e) => {
                 const val = parseInt(e.target.value) || 1;
                 testState.concurrency = Math.max(1, Math.min(10, val));
@@ -425,7 +425,7 @@ const ConfigView = {
             const searchInput = document.createElement("input");
             searchInput.type = "text";
             searchInput.placeholder = "搜索...";
-            searchInput.className = "w-full pl-8 pr-3 py-1.5 bg-md-surface border border-md-outline rounded-md-full text-body-small text-md-on-surface focus:outline-none focus:border-md-primary focus:border-2 transition-all";
+            searchInput.className = "w-full pl-8 pr-3 md-input md-input-compact md-input-pill text-body-small";
             searchWrapper.appendChild(searchIcon);
             searchWrapper.appendChild(searchInput);
             controlSection.appendChild(searchWrapper);
@@ -1774,14 +1774,14 @@ Object.assign(ConfigView, {
                 fromInput.type = "text";
                 fromInput.value = mapping.from || "";
                 fromInput.placeholder = "请求模型名";
-                fromInput.className = "flex-1 px-3 py-2 bg-md-surface border border-md-outline rounded-md-xs text-body-medium text-md-on-surface focus:outline-none focus:border-md-primary focus:border-2";
+                fromInput.className = "flex-1 md-input md-input-compact text-body-medium";
                 fromInput.oninput = (e) => { providerData.modelMappings[i].from = e.target.value.trim(); if (rerenderCb) rerenderCb(); };
                 
                 const toInput = document.createElement("input");
                 toInput.type = "text";
                 toInput.value = mapping.to || "";
                 toInput.placeholder = "上游模型名";
-                toInput.className = "flex-1 px-3 py-2 bg-md-surface border border-md-outline rounded-md-xs text-body-medium text-md-on-surface focus:outline-none focus:border-md-primary focus:border-2";
+                toInput.className = "flex-1 md-input md-input-compact text-body-medium";
                 toInput.oninput = (e) => { providerData.modelMappings[i].to = e.target.value.trim(); if (rerenderCb) rerenderCb(); };
                 
                 const deleteBtn = UI.iconBtn("delete", () => {
@@ -1789,7 +1789,7 @@ Object.assign(ConfigView, {
                     renderList();
                     if (rerenderCb) rerenderCb();
                 }, "standard", { tooltip: "删除" });
-                deleteBtn.classList.add("opacity-0", "group-hover:opacity-100", "transition-opacity");
+                deleteBtn.classList.add("md-hover-fade-in");
                 
                 row.appendChild(fromInput);
                 row.appendChild(UI.icon("arrow_forward", "text-md-on-surface-variant flex-shrink-0"));

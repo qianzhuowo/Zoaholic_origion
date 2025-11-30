@@ -191,13 +191,13 @@ const DashboardView = {
                     let statusChip;
                     if (channel.status === "healthy") {
                         statusChip = UI.chip("Healthy", "filter", "check_circle", { selected: true });
-                        statusChip.classList.add("bg-md-success-container", "text-md-on-success-container", "border-md-success-container");
+                        statusChip.classList.add("md-chip-status-healthy");
                     } else if (channel.status === "warning") {
                         statusChip = UI.chip("Warning", "filter", "warning", { selected: true });
-                        statusChip.classList.add("bg-md-warning-container", "text-md-on-warning-container", "border-md-warning-container");
+                        statusChip.classList.add("md-chip-status-warning");
                     } else {
                         statusChip = UI.chip("Error", "filter", "error", { selected: true });
-                        statusChip.classList.add("bg-md-error-container", "text-md-on-error-container", "border-md-error-container");
+                        statusChip.classList.add("md-chip-status-error");
                     }
 
                     const nameTd = UI.el("td", "px-6 py-4");

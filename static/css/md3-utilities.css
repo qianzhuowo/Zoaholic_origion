@@ -1,0 +1,129 @@
+/*!
+ * MD3 Utilities for Zoaholic
+ * Combined utility classes extracted from repeated Tailwind compositions
+ * Note: Uses palette values from Tailwind config in static/index.html.
+ */
+
+:root {
+  --md-color-primary: #1976D2;
+  --md-color-surface: #FAFCFF;
+  --md-color-on-surface: #191C1E;
+  --md-color-outline: #72777F;
+
+  --md-success-container: #C8E6C9;
+  --md-on-success-container: #1B5E20;
+  --md-warning-container: #FFE0B2;
+  --md-on-warning-container: #E65100;
+  --md-error-container: #FFDAD6;
+  --md-on-error-container: #410002;
+}
+
+/* Status Chips - background/text/border combined */
+.md-chip-status-healthy {
+  background-color: var(--md-success-container);
+  color: var(--md-on-success-container);
+  border: 1px solid var(--md-success-container);
+}
+
+.md-chip-status-warning {
+  background-color: var(--md-warning-container);
+  color: var(--md-on-warning-container);
+  border: 1px solid var(--md-warning-container);
+}
+
+.md-chip-status-error {
+  background-color: var(--md-error-container);
+  color: var(--md-on-error-container);
+  border: 1px solid var(--md-error-container);
+}
+
+/* Inputs - reusable base and size modifiers */
+.md-input {
+  background-color: var(--md-color-surface);
+  color: var(--md-color-on-surface);
+  border: 1px solid var(--md-color-outline);
+  border-radius: 4px; /* matches rounded-md-xs */
+  outline: none;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease, background-color 0.2s ease;
+}
+.md-input:focus {
+  border-color: var(--md-color-primary);
+  border-width: 2px;
+}
+
+.md-input-compact {
+  padding: 8px 12px; /* py-2 px-3 */
+}
+
+.md-input-large {
+  padding: 12px 16px; /* py-3 px-4 */
+}
+
+.md-input-pill {
+  border-radius: 9999px;
+}
+
+/* Utility: visually consistent transition for opacity/transform used across UI */
+.md-transition {
+  transition: all 0.2s ease;
+}
+/* ========== Hover fade-in in group context ========== */
+/* Usage: parent has class "group", child has class "md-hover-fade-in" */
+.md-hover-fade-in {
+  opacity: 0;
+  transition: opacity 0.2s ease;
+}
+.group:hover .md-hover-fade-in {
+  opacity: 1;
+}
+
+/* ========== Input helpers ========== */
+.md-input-center { text-align: center; }
+.md-input-mono {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+}
+
+/* ========== Range slider ========== */
+/* Normalize range appearance across browsers and align with MD palette */
+.md-range {
+  width: 100%;
+  height: 8px;
+  background-color: var(--md-color-surface);
+  border-radius: 9999px;
+  appearance: none;
+  cursor: pointer;
+  accent-color: var(--md-color-primary);
+}
+.md-range::-webkit-slider-runnable-track {
+  height: 8px;
+  border-radius: 9999px;
+  background-color: var(--md-color-surface);
+}
+.md-range::-webkit-slider-thumb {
+  appearance: none;
+  width: 16px;
+  height: 16px;
+  border-radius: 9999px;
+  background-color: var(--md-color-primary);
+  margin-top: -4px; /* centers the thumb on 8px track */
+}
+.md-range::-moz-range-track {
+  height: 8px;
+  border-radius: 9999px;
+  background-color: var(--md-color-surface);
+}
+.md-range::-moz-range-thumb {
+  width: 16px;
+  height: 16px;
+  border-radius: 9999px;
+  background-color: var(--md-color-primary);
+}
+/* Additional surface container variable and input variant */
+:root {
+  --md-surface-container: #EDF1F6;
+}
+
+/* Variant: input on surface-container background (used by chat input etc.) */
+.md-input-surface-container {
+  background-color: var(--md-surface-container);
+}

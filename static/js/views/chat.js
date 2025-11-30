@@ -39,7 +39,7 @@ const ChatView = {
             rng.max = String(max);
             rng.step = String(step);
             rng.value = String(val);
-            rng.className = "w-full h-2 bg-md-surface-variant rounded-full appearance-none cursor-pointer accent-md-primary";
+            rng.className = "md-range";
             rng.oninput = (e) => {
                 valDisplay.textContent = e.target.value;
             };
@@ -93,7 +93,7 @@ const ChatView = {
 
         const chatInput = document.createElement("input");
         chatInput.type = "text";
-        chatInput.className = "flex-1 px-4 py-3 bg-md-surface-container rounded-md-full border border-md-outline text-body-large text-md-on-surface focus:outline-none focus:border-md-primary focus:border-2 transition-all";
+        chatInput.className = "flex-1 md-input md-input-large md-input-pill md-input-surface-container text-body-large";
         chatInput.placeholder = "输入消息...";
 
         const sendBtn = UI.btn("发送", null, "filled", "send");
