@@ -14,7 +14,6 @@ on:
       - pyproject.toml
       - docker-compose.yml
       - .github/workflows/main.yml
-      - .gitmodules
   workflow_dispatch:
 
 jobs:
@@ -24,9 +23,6 @@ jobs:
     steps:
     - name: Checkout repository
       uses: actions/checkout@v3
-      with:
-        submodules: recursive
-        token: ${{ secrets.PACK_TOKEN }}
 
     - name: Set up QEMU
       uses: docker/setup-qemu-action@v1
