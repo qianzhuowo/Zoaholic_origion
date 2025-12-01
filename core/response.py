@@ -8,9 +8,11 @@
 import json
 import asyncio
 from datetime import datetime
+from typing import Optional, List
 
 from .log_config import logger
 from .utils import safe_get, generate_sse_response, generate_no_stream_response, end_of_line
+from .plugins.interceptors import apply_response_interceptors
 
 
 async def check_response(response, error_log):
@@ -187,7 +189,16 @@ async def fetch_response(client, url, headers, payload, engine, model, timeout=2
         yield response_json
 
 
-async def fetch_response_stream(client, url, headers, payload, engine, model, timeout=200):
+async def fetch_response_stream(
+    client,
+    url,
+    headers,
+    payload,
+    engine,
+    model,
+    timeout=200,
+    enabled_plugins: Optional[List[str]] = None,
+):
     """
     通过渠道注册中心获取流式响应适配器并处理响应流
     
@@ -199,6 +210,7 @@ async def fetch_response_stream(client, url, headers, payload, engine, model, ti
         engine: 引擎类型
         model: 模型名称
         timeout: 超时时间
+        enabled_plugins: 该渠道启用的插件列表（用于过滤响应拦截器）
         
     Yields:
         SSE 格式的响应数据
@@ -208,6 +220,8 @@ async def fetch_response_stream(client, url, headers, payload, engine, model, ti
     channel = get_channel(engine)
     if channel and channel.stream_adapter:
         async for chunk in channel.stream_adapter(client, url, headers, payload, model, timeout):
+            # 应用响应拦截器（插件可在此修改响应内容）
+            chunk = await apply_response_interceptors(chunk, engine, model, is_stream=True, enabled_plugins=enabled_plugins)
             yield chunk
         return
     

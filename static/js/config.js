@@ -9,14 +9,15 @@ const AppConfig = {
     // 当前用户信息 - 从 localStorage 加载或为空
     currentUser: null,
     
-    // 导航顺序：总览 - 日志 - 密钥 - 渠道 - 对话 - 工具箱
+    // 导航顺序：总览 - 日志 - 密钥 - 渠道 - 插件 - 对话 - 工具箱
     navItems: [
         { id: "dashboard", label: "控制台总览", icon: "dashboard" },
         { id: "logs", label: "请求日志", icon: "receipt_long" },
         { id: "admin", label: "API 密钥管理", icon: "vpn_key" },
         { id: "config", label: "渠道配置", icon: "settings_applications" },
+        { id: "plugins", label: "插件管理", icon: "extension" },
         { id: "chat", label: "对话", icon: "chat" },
-        { id: "tools", label: "工具箱", icon: "extension" }
+        { id: "tools", label: "工具箱", icon: "build" }
     ],
 
     /**

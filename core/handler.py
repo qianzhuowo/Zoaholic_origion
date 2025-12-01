@@ -175,11 +175,14 @@ async def process_request(
 
     proxy = safe_get(app.state.config, "preferences", "proxy", default=None)  # global proxy
     proxy = safe_get(provider, "preferences", "proxy", default=proxy)  # provider proxy
+    
+    # 获取该渠道启用的插件列表
+    enabled_plugins = safe_get(provider, "preferences", "enabled_plugins", default=None)
 
     try:
         async with app.state.client_manager.get_client(url, proxy) as client:
             if request.stream:
-                generator = fetch_response_stream(client, url, headers, payload, engine, original_model, timeout_value)
+                generator = fetch_response_stream(client, url, headers, payload, engine, original_model, timeout_value, enabled_plugins=enabled_plugins)
                 wrapped_generator, first_response_time = await error_handling_wrapper(
                     generator, channel_id, engine, request.stream, 
                     app.state.error_triggers, keepalive_interval=keepalive_interval, 

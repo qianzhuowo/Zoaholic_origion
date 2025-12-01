@@ -962,9 +962,24 @@ Object.assign(ConfigView, {
         if (prefs.tools === undefined) prefs.tools = true;
 
         // Basic Config Section
-        const basicHeader = UI.el("div", "inline-flex items-center gap-2 text-md-primary text-label-large mb-2");
-        basicHeader.appendChild(UI.icon("settings", "text-lg", true));
-        basicHeader.appendChild(UI.el("span", "", "基础配置"));
+        const basicHeader = UI.el("div", "flex items-center justify-between text-md-primary text-label-large mb-2");
+
+        const basicTitle = UI.el("div", "inline-flex items-center gap-2");
+        basicTitle.appendChild(UI.icon("settings", "text-lg", true));
+        basicTitle.appendChild(UI.el("span", "", "基础配置"));
+        basicHeader.appendChild(basicTitle);
+
+        // 渠道级插件拦截器入口按钮：打开独立侧边抽屉管理本渠道插件
+        const pluginEntryBtn = UI.iconBtn(
+            "extension",
+            () => {
+                ConfigView._openInterceptorPluginsPanel(prefs, null);
+            },
+            "standard",
+            { tooltip: "配置本渠道的插件拦截器" }
+        );
+        basicHeader.appendChild(pluginEntryBtn);
+
         form.appendChild(basicHeader);
 
         const basicSection = UI.el("div", "flex flex-col gap-3 bg-md-surface-container p-4 rounded-md-lg");
@@ -1395,6 +1410,8 @@ Object.assign(ConfigView, {
 
         // Advanced Section
         ConfigView._renderAdvancedSection(form, prefs);
+
+        // 插件拦截器在单独的侧边抽屉中配置，这里不再追加大块区域
 
         return form;
     },
@@ -1917,6 +1934,364 @@ Object.assign(ConfigView, {
         form.appendChild(section);
     },
 
+    /**
+     * 渲染插件拦截器配置部分
+     */
+    _renderInterceptorsSection(form, prefs) {
+        const header = UI.el("div", "inline-flex items-center gap-2 text-md-tertiary text-label-large mb-2 mt-4");
+        header.appendChild(UI.icon("extension", "text-lg", true));
+        header.appendChild(UI.el("span", "", "插件拦截器"));
+        form.appendChild(header);
+
+        const section = UI.el("div", "bg-md-surface-container p-4 rounded-md-lg flex flex-col gap-3");
+        
+        // 说明文字
+        section.appendChild(UI.el("div", "text-body-small text-md-on-surface-variant",
+            "选择在本渠道启用的插件拦截器。只有启用的插件才会处理该渠道的请求和响应。"));
+
+        // 已启用插件的 Chip 展示
+        const enabledPluginsContainer = UI.el("div", "flex flex-wrap gap-2 min-h-[40px] p-3 bg-md-surface-container-highest rounded-md-xs border border-dashed border-md-outline-variant");
+        
+        // 初始化 enabled_plugins
+        if (!Array.isArray(prefs.enabled_plugins)) {
+            prefs.enabled_plugins = [];
+        }
+
+        const renderEnabledPlugins = () => {
+            enabledPluginsContainer.innerHTML = "";
+            
+            if (prefs.enabled_plugins.length === 0) {
+                const emptyHint = UI.el("div", "w-full text-center text-body-small text-md-on-surface-variant/60 py-1",
+                    "未启用任何插件拦截器，点击下方按钮配置");
+                enabledPluginsContainer.appendChild(emptyHint);
+                return;
+            }
+            
+            prefs.enabled_plugins.forEach((pluginName, index) => {
+                const chip = UI.el("div", "inline-flex items-center gap-2 pl-3 pr-1 py-1 rounded-md-full bg-md-tertiary-container text-md-on-tertiary-container text-label-medium");
+                chip.appendChild(UI.icon("extension", "text-sm"));
+                chip.appendChild(UI.el("span", "", pluginName));
+                
+                // 删除按钮
+                const deleteBtn = UI.el("button", "w-5 h-5 rounded-full flex items-center justify-center hover:bg-md-on-tertiary-container/12 transition-colors");
+                deleteBtn.appendChild(UI.icon("close", "text-sm"));
+                deleteBtn.onclick = (e) => {
+                    e.stopPropagation();
+                    prefs.enabled_plugins.splice(index, 1);
+                    renderEnabledPlugins();
+                };
+                chip.appendChild(deleteBtn);
+                
+                enabledPluginsContainer.appendChild(chip);
+            });
+        };
+        
+        renderEnabledPlugins();
+        section.appendChild(enabledPluginsContainer);
+
+        // 配置按钮
+        const configBtn = UI.btn("配置插件拦截器", () => {
+            ConfigView._openInterceptorPluginsPanel(prefs, renderEnabledPlugins);
+        }, "tonal", "settings");
+        section.appendChild(configBtn);
+
+        form.appendChild(section);
+    },
+
+    /**
+     * 打开插件拦截器配置面板（嵌套侧边栏）
+     */
+    async _openInterceptorPluginsPanel(prefs, onUpdate) {
+        const adminKey = AppConfig?.currentUser?.key || null;
+        const headers = adminKey ? { Authorization: `Bearer ${adminKey}` } : {};
+
+        // 加载拦截器插件列表
+        let interceptorPlugins = [];
+        try {
+            const res = await fetch("/v1/plugins/interceptors", { headers });
+            if (res.ok) {
+                const data = await res.json();
+                interceptorPlugins = data.interceptor_plugins || [];
+            }
+        } catch (e) {
+            console.error("Failed to load interceptor plugins:", e);
+            UI.snackbar("加载插件列表失败", null, null, { variant: "error" });
+            return;
+        }
+
+        if (interceptorPlugins.length === 0) {
+            UI.snackbar("暂无可用的插件拦截器", null, null, { variant: "info" });
+            return;
+        }
+
+        // 解析已有的 enabled_plugins，提取插件名和参数
+        // 格式：["plugin_name:options", "plugin_name", ...]
+        const parsePluginEntry = (entry) => {
+            if (!entry || typeof entry !== "string") return { name: "", options: "" };
+            const colonIdx = entry.indexOf(":");
+            if (colonIdx === -1) return { name: entry.trim(), options: "" };
+            return {
+                name: entry.substring(0, colonIdx).trim(),
+                options: entry.substring(colonIdx + 1).trim()
+            };
+        };
+
+        // 当前选中的插件：Map<plugin_name, options_string>
+        const selected = new Map();
+        (prefs.enabled_plugins || []).forEach(entry => {
+            const { name, options } = parsePluginEntry(entry);
+            if (name) selected.set(name, options);
+        });
+
+        const renderPanelContent = () => {
+            const content = UI.el("div", "flex flex-col gap-4");
+
+            // 说明
+            content.appendChild(UI.el("div", "text-body-medium text-md-on-surface-variant",
+                "勾选要在本渠道启用的插件拦截器。可为每个插件配置参数（格式：plugin:options）。"));
+
+            // 统计栏 + 全选/全不选
+            const statsBar = UI.el("div", "flex items-center justify-between p-3 bg-md-surface-container-highest rounded-md-xs");
+            const statsText = UI.el("span", "text-body-medium text-md-on-surface-variant",
+                `共 ${interceptorPlugins.length} 个插件，已选 ${selected.size} 个`);
+
+            const actions = UI.el("div", "flex items-center gap-2");
+            const selectAllBtn = UI.btn("全选", () => {
+                interceptorPlugins.forEach(p => {
+                    if (!selected.has(p.plugin_name)) {
+                        selected.set(p.plugin_name, "");
+                    }
+                });
+                renderList();
+                updateStats();
+            }, "text", "select_all");
+            const clearAllBtn = UI.btn("全不选", () => {
+                selected.clear();
+                renderList();
+                updateStats();
+            }, "text", "deselect");
+            actions.appendChild(selectAllBtn);
+            actions.appendChild(clearAllBtn);
+
+            statsBar.appendChild(statsText);
+            statsBar.appendChild(actions);
+            content.appendChild(statsBar);
+
+            // 手风琴式插件列表容器
+            const listContainer = UI.el("div", "max-h-[420px] overflow-y-auto flex flex-col gap-2");
+
+            // 展开状态记录：手风琴哪几项是打开的
+            const expanded = new Set();
+
+            const updateStats = () => {
+                statsText.textContent = `共 ${interceptorPlugins.length} 个插件，已选 ${selected.size} 个`;
+            };
+
+            const renderList = () => {
+                listContainer.innerHTML = "";
+
+                interceptorPlugins.forEach(plugin => {
+                    const isSelected = selected.has(plugin.plugin_name);
+                    const currentOptions = selected.get(plugin.plugin_name) || "";
+                    const isExpanded = expanded.has(plugin.plugin_name);
+
+                    // 外层卡片 = 手风琴面板
+                    const panel = UI.el("div", "border border-md-outline-variant rounded-md-xs bg-md-surface-container overflow-hidden");
+
+                    // 头部：勾选 + 标题 + 展开箭头
+                    const headerRow = UI.el("div", "flex items-center justify-between px-3 py-2 cursor-pointer hover:bg-md-surface-container-high");
+                    panel.appendChild(headerRow);
+
+                    const left = UI.el("div", "flex items-center gap-3");
+
+                    // Checkbox
+                    const checkboxWrapper = UI.el("label", "inline-flex items-center cursor-pointer");
+                    const checkboxInput = document.createElement("input");
+                    checkboxInput.type = "checkbox";
+                    checkboxInput.checked = isSelected;
+                    checkboxInput.className = "sr-only peer";
+
+                    const checkboxBox = UI.el("div", `w-5 h-5 rounded-sm border-2 transition-all flex items-center justify-center flex-shrink-0 ${
+                        isSelected
+                            ? "bg-md-primary border-md-primary"
+                            : "border-md-on-surface-variant hover:border-md-on-surface"
+                    }`);
+                    const checkIcon = UI.icon("check", `text-sm text-md-on-primary transition-transform ${isSelected ? "scale-100" : "scale-0"}`);
+                    checkboxBox.appendChild(checkIcon);
+
+                    checkboxInput.addEventListener("change", (e) => {
+                        const nowChecked = e.target.checked;
+                        if (nowChecked) {
+                            selected.set(plugin.plugin_name, "");
+                        } else {
+                            selected.delete(plugin.plugin_name);
+                        }
+                        // 选中状态改变后，重新渲染手风琴列表，保持 UI 与数据一致
+                        renderList();
+                        updateStats();
+                    });
+
+                    checkboxWrapper.appendChild(checkboxInput);
+                    checkboxWrapper.appendChild(checkboxBox);
+                    left.appendChild(checkboxWrapper);
+
+                    // 标题 + 简要信息
+                    const titleCol = UI.el("div", "flex flex-col gap-0.5 min-w-0");
+
+                    const nameRow = UI.el("div", "flex items-center gap-2");
+                    // 显示插件名，如果有参数则显示 plugin:options 格式
+                    const displayName = currentOptions ? `${plugin.plugin_name}:${currentOptions}` : plugin.plugin_name;
+                    nameRow.appendChild(UI.el("span", "text-body-medium text-md-on-surface font-medium truncate", displayName));
+                    if (plugin.version) {
+                        nameRow.appendChild(UI.el("span", "text-label-small text-md-on-surface-variant bg-md-surface-container-high px-1.5 py-0.5 rounded", `v${plugin.version}`));
+                    }
+                    titleCol.appendChild(nameRow);
+
+                    const metaRow = UI.el("div", "flex flex-wrap gap-2");
+                    if (plugin.request_interceptors && plugin.request_interceptors.length > 0) {
+                        const reqChip = UI.el("span", "inline-flex items-center gap-1 px-2 py-0.5 rounded-md-full bg-md-primary-container text-md-on-primary-container text-label-small");
+                        reqChip.appendChild(UI.icon("arrow_upward", "text-xs"));
+                        reqChip.appendChild(document.createTextNode(`请求: ${plugin.request_interceptors.length}`));
+                        metaRow.appendChild(reqChip);
+                    }
+                    if (plugin.response_interceptors && plugin.response_interceptors.length > 0) {
+                        const resChip = UI.el("span", "inline-flex items-center gap-1 px-2 py-0.5 rounded-md-full bg-md-secondary-container text-md-on-secondary-container text-label-small");
+                        resChip.appendChild(UI.icon("arrow_downward", "text-xs"));
+                        resChip.appendChild(document.createTextNode(`响应: ${plugin.response_interceptors.length}`));
+                        metaRow.appendChild(resChip);
+                    }
+                    if (plugin.enabled === false) {
+                        const disabledChip = UI.el("span", "inline-flex items-center gap-1 px-2 py-0.5 rounded-md-full bg-md-surface-container-high text-md-on-surface-variant text-label-small");
+                        disabledChip.appendChild(UI.icon("block", "text-xs"));
+                        disabledChip.appendChild(document.createTextNode("插件未启用"));
+                        metaRow.appendChild(disabledChip);
+                    }
+                    if (metaRow.childNodes.length > 0) {
+                        titleCol.appendChild(metaRow);
+                    }
+
+                    left.appendChild(titleCol);
+                    headerRow.appendChild(left);
+
+                    const right = UI.el("div", "flex items-center gap-1 flex-shrink-0");
+                    const expandIcon = UI.icon(isExpanded ? "expand_less" : "expand_more", "text-md-on-surface-variant");
+                    right.appendChild(expandIcon);
+                    headerRow.appendChild(right);
+
+                    // 点击头部区域时，折叠/展开当前插件详情（手风琴行为）
+                    headerRow.onclick = (e) => {
+                        if (e.target.closest("input") || e.target.closest("button") || e.target.closest("label")) {
+                            return;
+                        }
+                        if (isExpanded) {
+                            expanded.delete(plugin.plugin_name);
+                        } else {
+                            expanded.add(plugin.plugin_name);
+                        }
+                        renderList();
+                    };
+
+                    // 展开区域：详细描述 + 拦截器信息 + 参数输入
+                    if (isExpanded) {
+                        const details = UI.el("div", "px-3 pb-3 pt-1 border-t border-md-outline-variant bg-md-surface-container-low flex flex-col gap-2");
+
+                        if (plugin.description) {
+                            details.appendChild(UI.el("div", "text-body-small text-md-on-surface-variant", plugin.description));
+                        }
+
+                        // 参数输入框（所有插件都显示，插件内部决定是否使用）
+                        const paramsSection = UI.el("div", "flex flex-col gap-1");
+                        const paramsLabel = UI.el("div", "flex items-center gap-1 text-label-small text-md-on-surface-variant");
+                        paramsLabel.appendChild(UI.icon("tune", "text-xs"));
+                        paramsLabel.appendChild(document.createTextNode("插件参数"));
+                        paramsSection.appendChild(paramsLabel);
+
+                        const paramsInput = document.createElement("input");
+                        paramsInput.type = "text";
+                        paramsInput.value = currentOptions;
+                        paramsInput.placeholder = "例如: max 或 12000 或 foo,bar";
+                        paramsInput.className = "w-full px-3 py-1.5 bg-md-surface border border-md-outline rounded-md-xs text-body-small font-mono text-md-on-surface focus:outline-none focus:border-md-primary focus:border-2 transition-all";
+                        
+                        // 参数变化时更新 selected Map
+                        paramsInput.oninput = (e) => {
+                            const newOptions = e.target.value.trim();
+                            if (isSelected) {
+                                selected.set(plugin.plugin_name, newOptions);
+                            }
+                        };
+                        
+                        // 失焦时刷新显示（更新标题行的显示）
+                        paramsInput.onblur = () => {
+                            renderList();
+                        };
+
+                        paramsSection.appendChild(paramsInput);
+                        
+                        // 参数提示（如果插件有 params_hint）
+                        const paramsHint = plugin.metadata?.params_hint;
+                        if (paramsHint) {
+                            paramsSection.appendChild(UI.el("div", "text-body-small text-md-on-surface-variant/70 mt-0.5", paramsHint));
+                        } else {
+                            paramsSection.appendChild(UI.el("div", "text-body-small text-md-on-surface-variant/70 mt-0.5", "参数由插件内部解析，留空表示使用默认值"));
+                        }
+                        
+                        details.appendChild(paramsSection);
+
+                        const interceptorsDetail = UI.el("div", "flex flex-col gap-1 text-body-small text-md-on-surface-variant/90 mt-2");
+                        if (plugin.request_interceptors && plugin.request_interceptors.length > 0) {
+                            const reqHeader = UI.el("div", "flex items-center gap-1 text-label-small text-md-on-surface-variant");
+                            reqHeader.appendChild(UI.icon("arrow_upward", "text-xs"));
+                            reqHeader.appendChild(document.createTextNode("请求拦截器"));
+                            interceptorsDetail.appendChild(reqHeader);
+                        }
+                        if (plugin.response_interceptors && plugin.response_interceptors.length > 0) {
+                            const resHeader = UI.el("div", "flex items-center gap-1 text-label-small text-md-on-surface-variant");
+                            resHeader.appendChild(UI.icon("arrow_downward", "text-xs"));
+                            resHeader.appendChild(document.createTextNode("响应拦截器"));
+                            interceptorsDetail.appendChild(resHeader);
+                        }
+                        if (interceptorsDetail.childNodes.length > 0) {
+                            details.appendChild(interceptorsDetail);
+                        }
+
+                        panel.appendChild(details);
+                    }
+
+                    listContainer.appendChild(panel);
+                });
+            };
+
+            renderList();
+            updateStats();
+            content.appendChild(listContainer);
+
+            return content;
+        };
+
+        // 使用独立 sideSheet 作为插件抽屉，避免在主表单中堆叠太多内容
+        UI.sideSheet(
+            "配置插件拦截器",
+            renderPanelContent,
+            async () => {
+                // 保存选中的插件，格式：plugin_name 或 plugin_name:options
+                const result = [];
+                selected.forEach((options, pluginName) => {
+                    if (options) {
+                        result.push(`${pluginName}:${options}`);
+                    } else {
+                        result.push(pluginName);
+                    }
+                });
+                prefs.enabled_plugins = result;
+                if (onUpdate) onUpdate();
+                UI.snackbar(`已选择 ${selected.size} 个插件`, null, null, { variant: "success" });
+                return true;
+            },
+            "确认",
+            { width: "max-w-xl", cancelText: "取消" }
+        );
+    },
+
     async _saveProvider(providerData, apiConfig, providers, providerIndex) {
         if (!providerData.name || !providerData.base_url) {
             UI.snackbar("渠道标识和 Base URL 为必填项", null, null, { variant: "error" });
@@ -2003,10 +2378,15 @@ Object.assign(ConfigView, {
             }
         }
 
+        // 插件拦截器配置
+        if (Array.isArray(prefs.enabled_plugins)) {
+            newPrefs.enabled_plugins = prefs.enabled_plugins.slice();
+        }
+
         // 保留未在表单中直接编辑的其他偏好字段（如 api_key_rate_limit、model_timeout 等）
         Object.keys(prefs).forEach((key) => {
             if (key.startsWith("_")) return; // 内部临时字段
-            if (["weight", "cooldown_period", "api_key_schedule_algorithm", "proxy", "tools", "headers", "post_body_parameter_overrides"].includes(key)) {
+            if (["weight", "cooldown_period", "api_key_schedule_algorithm", "proxy", "tools", "headers", "post_body_parameter_overrides", "enabled_plugins"].includes(key)) {
                 // 上面已处理
                 return;
             }

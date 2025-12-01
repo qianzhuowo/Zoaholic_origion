@@ -33,6 +33,7 @@ from core.stats import (
     update_paid_api_keys_states,
     update_channel_stats,
 )
+from core.plugins import get_plugin_manager
 
 DEFAULT_TIMEOUT = int(os.getenv("TIMEOUT", 100))
 is_debug = bool(os.getenv("DEBUG", False))
@@ -166,6 +167,19 @@ async def lifespan(app: FastAPI):
         else:
             ERROR_TRIGGERS = []
         app.state.error_triggers = ERROR_TRIGGERS
+
+    # 初始化插件系统（扫描 plugins/ 目录并加载所有插件）
+    try:
+        plugin_manager = get_plugin_manager()
+        load_result = plugin_manager.load_all()
+        total = sum(len(v) for v in load_result.values())
+        enabled = sum(
+            len([p for p in group if p.enabled])
+            for group in load_result.values()
+        )
+        logger.info("Plugin system initialized: %d/%d plugins enabled", enabled, total)
+    except Exception as e:
+        logger.error("Failed to initialize plugin system: %s", e)
 
     # 初始化全局 model_handler
     global model_handler

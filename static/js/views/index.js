@@ -13,6 +13,7 @@ const Views = {
         logs: LogsView,
         admin: AdminView,
         config: ConfigView,
+        plugins: PluginsView,
     },
 
     // 视图标题映射
@@ -23,6 +24,7 @@ const Views = {
         logs: "请求日志",
         admin: "API 密钥管理",
         config: "渠道配置",
+        plugins: "插件管理",
     },
 
     /**

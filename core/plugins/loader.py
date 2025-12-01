@@ -200,6 +200,11 @@ class PluginLoader:
         """
         loaded_plugins: List[PluginInfo] = []
         
+        # 示例插件文件名（仅作为示例，不参与实际加载）
+        example_files = {
+            "example_channel.py",
+        }
+        
         dirs_to_scan = [Path(directory)] if directory else self._plugin_dirs
         
         for plugin_dir in dirs_to_scan:
@@ -211,7 +216,13 @@ class PluginLoader:
             
             # 扫描 .py 文件
             for file_path in plugin_dir.glob("*.py"):
+                # 跳过以下情况：
+                # 1) 以 "_" 开头的私有模块
+                # 2) 官方示例插件文件（example_channel.py、example_hooks.py）
                 if file_path.name.startswith("_"):
+                    continue
+                if file_path.name in example_files:
+                    logger.debug(f"Skipping example plugin file: {file_path.name}")
                     continue
                 
                 info = self.load_from_file(str(file_path))

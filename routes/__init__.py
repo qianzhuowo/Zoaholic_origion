@@ -18,6 +18,7 @@ from routes.moderations import router as moderations_router
 from routes.channels import router as channels_router
 from routes.admin import router as admin_router
 from routes.stats import router as stats_router
+from routes.plugins import router as plugins_router
 
 # 注册所有子路由
 api_router.include_router(chat_router, tags=["Chat"])
@@ -29,5 +30,6 @@ api_router.include_router(moderations_router, tags=["Moderations"])
 api_router.include_router(channels_router, tags=["Channels"])
 api_router.include_router(admin_router, tags=["Admin"])
 api_router.include_router(stats_router, tags=["Stats"])
+api_router.include_router(plugins_router, tags=["Plugins"])
 
 __all__ = ["api_router"]

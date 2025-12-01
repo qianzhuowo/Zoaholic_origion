@@ -11,6 +11,7 @@ from .utils import (
     get_model_dict,
     safe_get,
 )
+from .plugins.interceptors import apply_request_interceptors
 
 
 async def get_payload(request: RequestModel, engine, provider, api_key=None):
@@ -56,6 +57,14 @@ async def get_payload(request: RequestModel, engine, provider, api_key=None):
             if isinstance(model_overrides, dict):
                 for k, v in model_overrides.items():
                     payload[k] = v
+
+        # 获取该渠道启用的插件列表
+        enabled_plugins = safe_get(provider, "preferences", "enabled_plugins", default=None)
+
+        # 应用请求拦截器（插件可在此修改 url/headers/payload）
+        url, headers, payload = await apply_request_interceptors(
+            request, engine, provider, api_key, url, headers, payload, enabled_plugins
+        )
 
         return url, headers, payload
      

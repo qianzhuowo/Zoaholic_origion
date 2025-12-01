@@ -7,8 +7,8 @@
 Zoaholic 的插件系统基于**扩展点（Extension Point）**机制，支持：
 
 - **渠道适配器**（channels）：添加新的 API 渠道
+- **拦截器**（interceptors）：拦截和处理请求/响应
 - **中间件**（middlewares）：处理请求和响应
-- **钩子**（hooks）：生命周期事件
 - **处理器**（processors）：自定义数据处理
 - **格式转换器**（formatters）：格式转换
 - **验证器**（validators）：数据验证
@@ -184,6 +184,132 @@ register_channel(
 )
 ```
 
+### 请求/响应拦截器（推荐）
+
+这是最简单的插件扩展方式，允许在请求发送前和响应返回后进行拦截和处理：
+
+```python
+from core.plugins import (
+    register_request_interceptor,
+    unregister_request_interceptor,
+    register_response_interceptor,
+    unregister_response_interceptor,
+)
+
+# 请求拦截器：在请求发送到渠道前调用
+async def my_request_interceptor(request, engine, provider, api_key, url, headers, payload):
+    """
+    拦截并修改请求参数
+    
+    Args:
+        request: 原始请求对象
+        engine: 引擎类型 (openai, gemini, claude, etc.)
+        provider: 提供商配置
+        api_key: API 密钥
+        url: 请求 URL
+        headers: 请求头
+        payload: 请求体
+        
+    Returns:
+        (url, headers, payload) 修改后的请求参数
+    """
+    # 添加自定义 header
+    headers["X-Custom-Header"] = "value"
+    
+    # 修改 payload
+    payload["custom_param"] = "value"
+    
+    return url, headers, payload
+
+# 响应拦截器：在响应返回时调用
+async def my_response_interceptor(response_chunk, engine, model, is_stream):
+    """
+    拦截并处理响应数据
+    
+    Args:
+        response_chunk: 响应数据（流式时为单个 chunk，非流式时为完整响应）
+        engine: 引擎类型
+        model: 模型名称
+        is_stream: 是否为流式响应
+        
+    Returns:
+        修改后的响应数据
+    """
+    # 可以记录日志、修改响应等
+    return response_chunk
+
+def setup(manager):
+    # 注册拦截器
+    register_request_interceptor(
+        interceptor_id="my_request_interceptor",
+        callback=my_request_interceptor,
+        priority=100,  # 数值越小越先执行
+        plugin_name="my_plugin",
+    )
+    
+    register_response_interceptor(
+        interceptor_id="my_response_interceptor",
+        callback=my_response_interceptor,
+        priority=100,
+        plugin_name="my_plugin",
+    )
+
+def teardown(manager):
+    # 注销拦截器
+    unregister_request_interceptor("my_request_interceptor")
+    unregister_response_interceptor("my_response_interceptor")
+```
+
+#### 拦截器执行顺序
+
+1. **请求拦截器**：在 `get_payload()` 构建完请求后、发送前调用
+2. **响应拦截器**：在渠道返回响应后、返回给客户端前调用
+
+拦截器按 `priority` 排序执行，数值越小越先执行。
+
+#### 按渠道控制拦截器
+
+拦截器支持按渠道启用/禁用。在渠道配置的 `preferences.enabled_plugins` 中指定要启用的插件列表：
+
+```yaml
+providers:
+  - provider: my_provider
+    base_url: https://api.example.com
+    preferences:
+      enabled_plugins:
+        - claude_thinking
+        - my_custom_plugin
+```
+
+只有在 `enabled_plugins` 列表中的插件的拦截器才会被执行。如果未配置 `enabled_plugins`，则所有启用的拦截器都会执行。
+
+在前端渠道编辑界面中，可以通过"插件拦截器"部分配置要启用的插件。
+
+#### 拦截器管理 API
+
+```python
+from core.plugins import get_interceptor_registry
+
+registry = get_interceptor_registry()
+
+# 获取所有拦截器
+request_interceptors = registry.get_request_interceptors()
+response_interceptors = registry.get_response_interceptors()
+
+# 启用/禁用拦截器
+registry.enable_request_interceptor("my_interceptor")
+registry.disable_request_interceptor("my_interceptor")
+
+# 按插件注销所有拦截器
+registry.unregister_plugin_interceptors("my_plugin")
+
+# 获取统计信息
+stats = registry.get_stats()
+
+# 获取所有注册了拦截器的插件列表
+interceptor_plugins = registry.get_interceptor_plugins()
+```
+
 ### 中间件扩展（middlewares）
 
 用于处理请求和响应：
@@ -213,12 +339,12 @@ def setup(manager):
     )
 ```
 
-### 钩子扩展（hooks）
+### 生命周期钩子扩展（hooks）
 
-用于监听生命周期事件：
+用于监听应用生命周期事件（注意：这与请求/响应拦截器不同）：
 
 ```python
-class MyHooks:
+class MyLifecycleHooks:
     async def on_startup(self):
         """应用启动时"""
         pass
@@ -242,8 +368,8 @@ class MyHooks:
 def setup(manager):
     manager.register_extension(
         extension_point="hooks",
-        extension_id="my_hooks",
-        implementation=MyHooks(),
+        extension_id="my_lifecycle_hooks",
+        implementation=MyLifecycleHooks(),
     )
 ```
 
