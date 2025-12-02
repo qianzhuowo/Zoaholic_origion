@@ -37,27 +37,12 @@ jobs:
         username: ${{ github.actor }}
         password: ${{ secrets.GITHUB_TOKEN }}
 
-    - name: Get and Bump Version
-      id: bump_version
+    - name: Read Version
+      id: version
       run: |
         VERSION=$(grep "^version = " pyproject.toml | awk -F'"' '{print $2}')
         echo "Current version: $VERSION"
-        IFS='.' read -ra VERSION_PARTS <<< "$VERSION"
-        PATCH=$((VERSION_PARTS[2] + 1))
-        NEW_VERSION="${VERSION_PARTS[0]}.${VERSION_PARTS[1]}.$PATCH"
-        echo "New version: $NEW_VERSION"
-        sed -i "s/^version = .*/version = \"$NEW_VERSION\"/" pyproject.toml
-        echo "new_version=$NEW_VERSION" >> $GITHUB_OUTPUT
-
-    - name: Commit version bump
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      run: |
-        git config --global user.name 'github-actions[bot]'
-        git config --global user.email 'github-actions[bot]@users.noreply.github.com'
-        git add pyproject.toml
-        git commit -m "📖 Bump version to ${{ steps.bump_version.outputs.new_version }} [skip ci]"
-        git push
+        echo "version=$VERSION" >> $GITHUB_OUTPUT
 
     - name: Build and push Docker image
       uses: docker/build-push-action@v2.7.0
@@ -68,4 +53,4 @@ jobs:
         push: true
         tags: |
           ghcr.io/hcptanghy/zoaholic:latest
-          ghcr.io/hcptanghy/zoaholic:${{ steps.bump_version.outputs.new_version }}
+          ghcr.io/hcptanghy/zoaholic:${{ steps.version.outputs.version }}

@@ -1154,6 +1154,41 @@ Object.assign(ConfigView, {
                                 }
                             }
                         };
+
+                        // 粘贴多行 key 时自动分割插入
+                        input.onpaste = (e) => {
+                            const clipboardData = e.clipboardData || window.clipboardData;
+                            if (!clipboardData) return;
+
+                            const pastedText = clipboardData.getData("text") || "";
+                            // 按换行符分割，支持 \r\n、\n、\r
+                            const lines = pastedText.split(/\r?\n|\r/).map(s => s.trim()).filter(s => s.length > 0);
+
+                            // 如果只有一行或没有内容，走默认粘贴逻辑
+                            if (lines.length <= 1) {
+                                return;
+                            }
+
+                            // 阻止默认粘贴行为
+                            e.preventDefault();
+
+                            // 当前行设为第一个 key
+                            providerData.api_keys[index] = lines[0];
+
+                            // 其余 key 插入到当前行之后
+                            const remaining = lines.slice(1);
+                            // 去重：过滤掉已存在的 key
+                            const existingSet = new Set(providerData.api_keys.map(k => (k || "").trim()).filter(k => k));
+                            const newKeys = remaining.filter(k => !existingSet.has(k));
+
+                            if (newKeys.length > 0) {
+                                // 在当前索引之后插入新 key
+                                providerData.api_keys.splice(index + 1, 0, ...newKeys);
+                            }
+
+                            renderKeyRows();
+                            UI.snackbar(`已粘贴 ${1 + newKeys.length} 个密钥`, null, null, { variant: "success" });
+                        };
         
                         // 复制按钮
                         const copyBtn = UI.iconBtn(
@@ -1859,6 +1894,22 @@ Object.assign(ConfigView, {
         form.appendChild(header);
 
         const section = UI.el("div", "bg-md-surface-container p-4 rounded-md-lg flex flex-col gap-3");
+        // 系统提示词配置
+        const systemPromptInitial = prefs.system_prompt || "";
+        prefs._systemPromptText = systemPromptInitial;
+        const systemPromptArea = UI.textArea(
+            "渠道系统提示词 (System Prompt)",
+            "可选：配置该渠道的系统提示词，将会追加到每个请求的 system 消息前面",
+            systemPromptInitial,
+            4,
+            {
+                helperText: "该提示词会追加在用户请求的系统消息之前，用于为该渠道的所有请求添加统一的上下文或指令",
+                variant: "outlined"
+            }
+        );
+        systemPromptArea.input.oninput = (e) => { prefs._systemPromptText = e.target.value; };
+        section.appendChild(systemPromptArea.wrapper);
+
 
         const proxyWrap = UI.textField("代理 (Proxy)", "http://127.0.0.1:7890", "text", prefs.proxy || "");
         proxyWrap.input.oninput = (e) => { prefs.proxy = e.target.value; };
@@ -2345,6 +2396,10 @@ Object.assign(ConfigView, {
         if (prefs.api_key_schedule_algorithm) newPrefs.api_key_schedule_algorithm = prefs.api_key_schedule_algorithm;
         if (typeof prefs.proxy === "string" && prefs.proxy.trim()) newPrefs.proxy = prefs.proxy.trim();
         if (typeof prefs.tools === "boolean") newPrefs.tools = prefs.tools;
+        // 系统提示词
+        if (typeof prefs._systemPromptText === "string" && prefs._systemPromptText.trim()) {
+            newPrefs.system_prompt = prefs._systemPromptText;
+        }
 
         // 自定义请求头 (headers) - 从 JSON 文本解析
         if (prefs._headersText && prefs._headersText.trim()) {
@@ -2386,7 +2441,7 @@ Object.assign(ConfigView, {
         // 保留未在表单中直接编辑的其他偏好字段（如 api_key_rate_limit、model_timeout 等）
         Object.keys(prefs).forEach((key) => {
             if (key.startsWith("_")) return; // 内部临时字段
-            if (["weight", "cooldown_period", "api_key_schedule_algorithm", "proxy", "tools", "headers", "post_body_parameter_overrides", "enabled_plugins"].includes(key)) {
+            if (["weight", "cooldown_period", "api_key_schedule_algorithm", "proxy", "tools", "headers", "post_body_parameter_overrides", "enabled_plugins", "system_prompt"].includes(key)) {
                 // 上面已处理
                 return;
             }
