@@ -13,6 +13,7 @@ const Views = {
         logs: LogsView,
         admin: AdminView,
         config: ConfigView,
+        settings: SettingsView,
         plugins: PluginsView,
     },
 
@@ -24,6 +25,7 @@ const Views = {
         logs: "请求日志",
         admin: "API 密钥管理",
         config: "渠道配置",
+        settings: "系统设置",
         plugins: "插件管理",
     },
 

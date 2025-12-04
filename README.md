@@ -479,6 +479,7 @@ preferences: # 全局配置
     o1-preview: 100
   cooldown_period: 300 # 渠道级冷却时间（秒），设为 0 表示不启用冷却机制
   rate_limit: 999999/min # 全局速率限制，支持 15/min,10/day 等组合
+  max_retry_count: 10 # 多渠道场景下的最大重试次数上限，默认 10，设置范围 1-100
   keepalive_interval: # 心跳间隔（秒），适合长推理场景
     gemini-2.5-pro: 50
   log_raw_data_retention_hours: 24 # 日志原始数据保留时间（小时），设为 0 或不设置表示不保存请求/响应原始数据

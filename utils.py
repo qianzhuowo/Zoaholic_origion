@@ -407,6 +407,14 @@ async def error_handling_wrapper(generator, channel_id, engine, stream, error_tr
                 return first_item, first_response_time
             else:
                 first_item_str = first_item_str.decode("utf-8")
+        
+        # 跳过空行和keepalive消息，获取真正的第一个有效响应
+        while isinstance(first_item_str, str) and (not first_item_str.strip() or first_item_str.startswith(": keepalive")):
+            first_item = await generator.__anext__()
+            first_item_str = first_item
+            if isinstance(first_item_str, (bytes, bytearray)):
+                first_item_str = first_item_str.decode("utf-8")
+        
         if isinstance(first_item_str, str) and not first_item_str.startswith(": keepalive"):
             if first_item_str.startswith("data:"):
                 first_item_str = first_item_str.lstrip("data: ")

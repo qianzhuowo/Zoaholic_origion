@@ -839,21 +839,25 @@ const UI = {
         };
         
         document.addEventListener("mouseenter", (e) => {
+            if (!e.target || typeof e.target.closest !== 'function') return;
             const target = e.target.closest("[data-tooltip]");
             if (target) showTooltip(target);
         }, true);
         
         document.addEventListener("mouseleave", (e) => {
+            if (!e.target || typeof e.target.closest !== 'function') return;
             const target = e.target.closest("[data-tooltip]");
             if (target) hideTooltip();
         }, true);
         
         document.addEventListener("focus", (e) => {
+            if (!e.target || typeof e.target.closest !== 'function') return;
             const target = e.target.closest("[data-tooltip]");
             if (target) showTooltip(target);
         }, true);
         
         document.addEventListener("blur", (e) => {
+            if (!e.target || typeof e.target.closest !== 'function') return;
             const target = e.target.closest("[data-tooltip]");
             if (target) hideTooltip();
         }, true);

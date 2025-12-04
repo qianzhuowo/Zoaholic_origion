@@ -9,6 +9,7 @@ import json
 import asyncio
 from collections import defaultdict
 from datetime import datetime, timedelta, timezone
+from time import time
 from urllib.parse import urlparse
 from typing import Dict, Union, Optional, Any, Callable, List, TYPE_CHECKING
 
@@ -21,6 +22,7 @@ from core.log_config import logger
 from core.streaming import LoggingStreamingResponse
 from core.request import get_payload
 from core.response import fetch_response, fetch_response_stream
+from core.stats import update_stats
 from core.models import (
     RequestModel,
     ImageGenerationRequest,
@@ -354,6 +356,11 @@ class ModelRequestHandler:
         )
 
         index = 0
+        # 获取配置的最大重试次数上限，默认为 10
+        max_retry_limit = safe_get(config, 'preferences', 'max_retry_count', default=10)
+        if max_retry_limit < 1:
+            max_retry_limit = 1
+        
         if num_matching_providers == 1:
             count = provider_api_circular_list[matching_providers[0]['provider']].get_items_count()
             if count > 1:
@@ -365,7 +372,7 @@ class ModelRequestHandler:
                 provider_api_circular_list[provider['provider']].get_items_count()
                 for provider in matching_providers
             ) * 2
-            retry_count = min(tmp_retry_count, 10)
+            retry_count = min(tmp_retry_count, max_retry_limit)
 
         # 初始化重试路径记录
         retry_path: List[Dict[str, Any]] = []
@@ -443,7 +450,11 @@ class ModelRequestHandler:
                     current_info["retry_path"] = json.dumps(retry_path, ensure_ascii=False)
                 current_info["retry_count"] = current_retry_count
                 return response
-            except (Exception, HTTPException, asyncio.CancelledError, httpx.ReadError,
+            except asyncio.CancelledError:
+                # 客户端取消请求，直接向上抛出，不再重试
+                logger.info(f"Request cancelled by client for model {request_model_name}")
+                raise
+            except (Exception, HTTPException, httpx.ReadError,
                     httpx.RemoteProtocolError, httpx.LocalProtocolError, httpx.ReadTimeout,
                     httpx.ConnectError) as e:
                 # 记录重试路径
@@ -471,9 +482,6 @@ class ModelRequestHandler:
                 elif isinstance(e, httpx.LocalProtocolError):
                     status_code = 502  # Bad Gateway
                     error_message = "Local protocol error"
-                elif isinstance(e, asyncio.CancelledError):
-                    status_code = 499  # Client Closed Request
-                    error_message = "Request was cancelled"
                 elif isinstance(e, HTTPException):
                     status_code = e.status_code
                     error_message = str(e.detail)
@@ -565,16 +573,24 @@ class ModelRequestHandler:
                     or urlparse(provider.get('base_url', '')).netloc == 'models.inference.ai.azure.com'):
                     continue
                 else:
-                    # 失败时也记录重试信息
+                    # 失败时也记录重试信息和统计
                     current_info = self.request_info_getter()
                     if retry_path:
                         current_info["retry_path"] = json.dumps(retry_path, ensure_ascii=False)
                     current_info["retry_count"] = current_retry_count
+                    current_info["success"] = False
+                    # 记录处理时间
+                    if "start_time" in current_info:
+                        process_time = time() - current_info["start_time"]
+                        current_info["process_time"] = process_time
+                    # 写入失败统计
+                    background_tasks.add_task(update_stats, current_info, app=self.app)
                     return JSONResponse(
                         status_code=status_code,
                         content={"error": f"Error: Current provider response failed: {error_message}"}
                     )
 
+        # 所有重试都失败
         current_info = self.request_info_getter()
         current_info["first_response_time"] = -1
         current_info["success"] = False
@@ -583,6 +599,12 @@ class ModelRequestHandler:
         if retry_path:
             current_info["retry_path"] = json.dumps(retry_path, ensure_ascii=False)
         current_info["retry_count"] = current_retry_count
+        # 记录处理时间
+        if "start_time" in current_info:
+            process_time = time() - current_info["start_time"]
+            current_info["process_time"] = process_time
+        # 写入失败统计
+        background_tasks.add_task(update_stats, current_info, app=self.app)
         return JSONResponse(
             status_code=status_code,
             content={"error": f"All {request_data.model} error: {error_message}"}

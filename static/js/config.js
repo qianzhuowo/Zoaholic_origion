@@ -9,7 +9,6 @@ const AppConfig = {
     // 当前用户信息 - 从 localStorage 加载或为空
     currentUser: null,
     
-    // 导航顺序：总览 - 日志 - 密钥 - 渠道 - 插件 - 对话 - 工具箱
     navItems: [
         { id: "dashboard", label: "控制台总览", icon: "dashboard" },
         { id: "logs", label: "请求日志", icon: "receipt_long" },
@@ -17,7 +16,8 @@ const AppConfig = {
         { id: "config", label: "渠道配置", icon: "settings_applications" },
         { id: "plugins", label: "插件管理", icon: "extension" },
         { id: "chat", label: "对话", icon: "chat" },
-        { id: "tools", label: "工具箱", icon: "build" }
+        { id: "tools", label: "工具箱", icon: "build" },
+        { id: "settings", label: "系统设置", icon: "tune" }
     ],
 
     /**
@@ -128,7 +128,7 @@ const AppConfig = {
     }
 };
 
-// Mock Data to simulate backend responses
+// Mock Data to simulate backend responses 
 const MockData = {
     stats: {
         total_requests: 14502,
@@ -136,13 +136,6 @@ const MockData = {
         success_rate: 98.4,
         active_channels: 12
     },
-    models: [
-        "gpt-4-turbo",
-        "gpt-3.5-turbo",
-        "claude-3-opus",
-        "gemini-pro",
-        "dall-e-3"
-    ],
     channels: [
         { name: "OpenAI Official", status: "healthy", latency: "240ms", success: "99.9%" },
         { name: "Azure OpenAI", status: "healthy", latency: "180ms", success: "99.5%" },
@@ -180,10 +173,5 @@ const MockData = {
         { key: "sk-proj-...", owner: "Admin", credits: 1000, cost: 12.5, status: "Active" },
         { key: "sk-user-...", owner: "TestUser", credits: 50, cost: 45.2, status: "Active" },
         { key: "sk-temp-...", owner: "Guest", credits: 5, cost: 5.0, status: "Depleted" }
-    ],
-    chatHistory: [
-        { role: "system", content: "You are a helpful assistant powered by Zoaholic Gateway." },
-        { role: "user", content: "Hello, system is running?" },
-        { role: "assistant", content: "Yes! The Zoaholic Gateway is fully operational. How can I help you today?" }
     ]
 };

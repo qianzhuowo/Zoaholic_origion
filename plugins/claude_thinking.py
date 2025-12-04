@@ -251,6 +251,10 @@ class ThinkingStreamTransformer:
         """
         trimmed = line.strip()
         
+        # 过滤空行和keepalive消息（必须在最前面，避免后续JSON解析失败）
+        if not trimmed or trimmed.startswith(":"):
+            return [line + "\n"]
+        
         # 处理 [DONE] 标记
         if trimmed == "data: [DONE]":
             outputs = []
@@ -395,17 +399,28 @@ async def claude_thinking_response_interceptor(
         return response_chunk
     
     # 处理响应块（异步处理每一行）
-    lines = response_chunk.split("\n")
-    output_lines = []
+    # 特殊处理：如果响应只是空行、keepalive或不包含data:，直接返回
+    stripped = response_chunk.strip()
+    if not stripped or stripped.startswith(":"):
+        return response_chunk
     
-    for line in lines:
-        if line.strip():
-            transformed = await transformer.transform_line(line)
-            output_lines.extend(transformed)
-        else:
-            output_lines.append(line + "\n")
-    
-    result = "".join(output_lines)
+    try:
+        lines = response_chunk.split("\n")
+        output_lines = []
+        
+        for line in lines:
+            # 保留空行，它们是SSE协议的一部分
+            if not line:
+                output_lines.append("\n")
+            else:
+                transformed = await transformer.transform_line(line)
+                output_lines.extend(transformed)
+        
+        result = "".join(output_lines)
+    except Exception as e:
+        # 如果处理过程中出现任何错误，返回原始响应
+        logger.error(f"[claude_thinking] Error processing response chunk: {e}")
+        return response_chunk
     
     # 如果收到 [DONE]，刷新并重置状态
     if "data: [DONE]" in response_chunk:
