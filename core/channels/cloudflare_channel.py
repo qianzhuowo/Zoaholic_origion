@@ -10,12 +10,27 @@ from datetime import datetime
 
 from ..utils import (
     get_model_dict,
-    get_text_message,
-    get_image_message,
+    get_base64_image,
     generate_sse_response,
     end_of_line,
 )
 from ..response import check_response
+
+
+# ============================================================
+# Cloudflare Workers AI 格式化函数
+# ============================================================
+
+def format_text_message(text: str) -> str:
+    """格式化文本消息为 Cloudflare 格式（纯文本）"""
+    return text
+
+
+async def format_image_message(image_url: str) -> dict:
+    """格式化图片消息为 Cloudflare 格式"""
+    # Cloudflare Workers AI 对图片支持有限，暂时返回空
+    base64_image, _ = await get_base64_image(image_url)
+    return {"type": "image", "url": base64_image}
 
 
 async def get_cloudflare_payload(request, engine, provider, api_key=None):
@@ -40,13 +55,13 @@ async def get_cloudflare_payload(request, engine, provider, api_key=None):
             content = []
             for item in msg.content:
                 if item.type == "text":
-                    text_message = await get_text_message(item.text, engine)
+                    text_message = format_text_message(item.text)
                     content.append(text_message)
                 elif item.type == "image_url" and provider.get("image", True):
-                    image_message = await get_image_message(item.image_url.url, engine)
-                    content.append(image_message)
+                    # Cloudflare Workers AI 对图片支持有限
+                    pass
             # Cloudflare 使用简单的 content 字符串
-            text_content = " ".join([c.get("text", "") for c in content if c.get("type") == "text"])
+            text_content = " ".join([c for c in content if isinstance(c, str)])
             messages.append({"role": msg.role, "content": text_content})
         else:
             messages.append({"role": msg.role, "content": msg.content})

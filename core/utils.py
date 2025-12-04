@@ -102,77 +102,38 @@ class BaseAPI:
             self.embeddings = urlunparse(parsed_url[:2] + (before_v1 + "/v1beta/embeddings",) + ("",) * 3)
 
 def get_engine(provider, endpoint=None, original_model=""):
-    parsed_url = urlparse(provider['base_url'])
-    # print("parsed_url", parsed_url)
-    engine = None
+    """
+    获取引擎类型和流式模式
+    
+    Args:
+        provider: provider 配置，必须包含 engine 字段
+        endpoint: 请求端点（可选）
+        original_model: 原始模型名（可选）
+        
+    Returns:
+        tuple: (engine, stream)
+        
+    Raises:
+        ValueError: 当 provider 未配置 engine 字段时
+    """
     stream = None
-    if parsed_url.path.endswith("/v1beta") or \
-    (parsed_url.netloc == 'generativelanguage.googleapis.com' and "openai/chat/completions" not in parsed_url.path):
-        engine = "gemini"
-    elif parsed_url.netloc.rstrip('/').endswith('aiplatform.googleapis.com') or \
-        (parsed_url.netloc.rstrip('/').endswith('gateway.ai.cloudflare.com') and "google-vertex-ai" in parsed_url.path) or \
-        "aiplatform.googleapis.com" in parsed_url.path:
-        engine = "vertex"
-    elif parsed_url.netloc.rstrip('/').endswith('azure.com'):
-        engine = "azure"
-    elif parsed_url.netloc.rstrip('/').endswith('azuredatabricks.net'):
-        engine = "azure-databricks"
-    elif parsed_url.netloc == 'api.cloudflare.com':
-        engine = "cloudflare"
-    elif parsed_url.netloc == 'api.anthropic.com' or parsed_url.path.endswith("v1/messages"):
-        engine = "claude"
-    elif 'amazonaws.com' in parsed_url.netloc:
-        engine = "aws"
-    elif parsed_url.netloc == 'api.cohere.com':
-        engine = "cohere"
-        stream = True
-    else:
-        engine = "openai"
+    
+    # 强制要求配置 engine 字段
+    engine = provider.get("engine")
+    if not engine:
+        raise ValueError(
+            f"provider 必须配置 engine 字段。"
+        )
+    
+    # 处理 vertex 的子类型区分（同一平台不同 API 格式）
+    original_model_lower = original_model.lower() if original_model else ""
+    if engine == "vertex":
+        if "claude" in original_model_lower:
+            engine = "vertex-claude"
+        else:
+            engine = "vertex-gemini"
 
-    original_model = original_model.lower()
-    if original_model \
-    and "claude" not in original_model \
-    and "openai" not in original_model \
-    and "deepseek" not in original_model \
-    and "o1" not in original_model \
-    and "o3" not in original_model \
-    and "o4" not in original_model \
-    and "gemini" not in original_model \
-    and "gemma" not in original_model \
-    and "learnlm" not in original_model \
-    and "grok" not in original_model \
-    and parsed_url.netloc != 'api.cloudflare.com' \
-    and parsed_url.netloc != 'api.cohere.com':
-        engine = "openrouter"
-
-    if "claude" in original_model and engine == "vertex":
-        engine = "vertex-claude"
-
-    if "gemini" in original_model and engine == "vertex":
-        engine = "vertex-gemini"
-
-    if provider.get("engine"):
-        engine = provider["engine"]
-
-    if engine != "gemini" and (endpoint == "/v1/images/generations" or "stable-diffusion" in original_model):
-        engine = "dalle"
-        stream = False
-
-    if endpoint == "/v1/audio/transcriptions":
-        engine = "whisper"
-        stream = False
-
-    if endpoint == "/v1/moderations":
-        engine = "moderation"
-        stream = False
-
-    if endpoint == "/v1/embeddings":
-        engine = "embedding"
-
-    if endpoint == "/v1/audio/speech":
-        engine = "tts"
-        stream = False
-
+    # 允许通过配置覆盖 stream 模式
     if "stream" in safe_get(provider, "preferences", "post_body_parameter_overrides", default={}):
         stream = safe_get(provider, "preferences", "post_body_parameter_overrides", "stream")
 
@@ -524,53 +485,6 @@ def circular_list_encoder(obj):
 
 provider_api_circular_list = defaultdict(ThreadSafeCircularList)
 
-# 【GCP-Vertex AI 目前有這些區域可用】 https://cloud.google.com/vertex-ai/generative-ai/docs/partner-models/use-claude?hl=zh_cn
-# https://cloud.google.com/vertex-ai/generative-ai/docs/learn/locations?hl=zh-cn#available-regions
-
-# c3.5s
-# us-east5
-# europe-west1
-
-# c3s
-# us-east5
-# us-central1
-# asia-southeast1
-
-# c3o
-# us-east5
-
-# c3h
-# us-east5
-# us-central1
-# europe-west1
-# europe-west4
-
-
-c35s = ThreadSafeCircularList(["us-east5", "europe-west1"])
-c3s = ThreadSafeCircularList(["us-east5", "us-central1", "asia-southeast1"])
-c3o = ThreadSafeCircularList(["us-east5"])
-c4 = ThreadSafeCircularList(["us-east5", "europe-west1", "asia-east1"])
-c3h = ThreadSafeCircularList(["us-east5", "us-central1", "europe-west1", "europe-west4"])
-gemini1 = ThreadSafeCircularList(["us-central1", "us-east4", "us-west1", "us-west4", "europe-west1", "europe-west2"])
-gemini_preview = ThreadSafeCircularList(["global"])
-# gemini2_5_pro_exp = ThreadSafeCircularList(["global"])
-gemini2_5_pro_exp = ThreadSafeCircularList([
-  "us-central1",
-  "us-east1",
-  "us-east4",
-  "us-east5",
-  "us-south1",
-  "us-west1",
-  "us-west4",
-  "europe-central2",
-  "europe-north1",
-  "europe-southwest1",
-  "europe-west1",
-  "europe-west4",
-  "europe-west8",
-  "europe-west9"
-])
-
 
 # end_of_line = "\n\r\n"
 # end_of_line = "\r\n"
@@ -779,70 +693,37 @@ async def get_encode_image(image_url):
 #         print(f"Image validation failed: {str(e)}")
 #         return False
 
-async def get_image_message(base64_image, engine = None):
-    if base64_image.startswith("http"):
-        base64_image = await get_encode_image(base64_image)
+async def get_base64_image(image_url: str) -> tuple[str, str]:
+    """
+    获取 base64 编码的图片数据和 MIME 类型
+    
+    Args:
+        image_url: 图片 URL 或已编码的 base64 字符串
+        
+    Returns:
+        tuple: (base64_image_with_prefix, mime_type)
+               例如: ("data:image/png;base64,xxx", "image/png")
+    """
+    if image_url.startswith("http"):
+        base64_image = await get_encode_image(image_url)
+    else:
+        base64_image = image_url
+        
     colon_index = base64_image.index(":")
     semicolon_index = base64_image.index(";")
     image_type = base64_image[colon_index + 1:semicolon_index]
 
+    # 将 webp 转换为 png（某些 API 不支持 webp）
     if image_type == "image/webp":
-        # 将webp转换为png
-
-        # 解码base64获取图片数据
         image_data = base64.b64decode(base64_image.split(",")[1])
-
-        # 使用PIL打开webp图片
         image = Image.open(io.BytesIO(image_data))
-
-        # 转换为PNG格式
         png_buffer = io.BytesIO()
         image.save(png_buffer, format="PNG")
         png_base64 = base64.b64encode(png_buffer.getvalue()).decode('utf-8')
-
-        # 返回PNG格式的base64
         base64_image = f"data:image/png;base64,{png_base64}"
         image_type = "image/png"
 
-    if "openai" == engine or "openrouter" == engine or "azure" == engine or "azure-databricks" == engine:
-        return {
-            "type": "image_url",
-            "image_url": {
-                "url": base64_image,
-            }
-        }
-    if "claude" == engine or "vertex-claude" == engine or "aws" == engine:
-        # if not validate_image(base64_image.split(",")[1], image_type):
-        #     raise ValueError(f"Invalid image format. Expected {image_type}")
-        return {
-            "type": "image",
-            "source": {
-                "type": "base64",
-                "media_type": image_type,
-                "data": base64_image.split(",")[1],
-            }
-        }
-    if "gemini" == engine or "vertex-gemini" == engine:
-        return {
-            "inlineData": {
-                "mimeType": image_type,
-                "data": base64_image.split(",")[1],
-            }
-        }
-    raise ValueError("Unknown engine")
-
-async def get_text_message(message, engine = None):
-    if "openai" == engine or "claude" == engine or "openrouter" == engine or \
-    "vertex-claude" == engine or "azure" == engine or "aws" == engine or \
-    "azure-databricks" == engine:
-        return {"type": "text", "text": message}
-    if "gemini" == engine or "vertex-gemini" == engine:
-        return {"text": message}
-    if engine == "cloudflare":
-        return message
-    if engine == "cohere":
-        return message
-    raise ValueError("Unknown engine")
+    return base64_image, image_type
 
 def parse_json_safely(json_str):
     """
@@ -909,5 +790,6 @@ async def upload_image_to_0x0st(base64_image: str):
 if __name__ == "__main__":
     provider = {
         "base_url": "https://gateway.ai.cloudflare.com/v1/%7Baccount_id%7D/%7Bgateway_id%7D/google-vertex-ai",
+        "engine": "vertex",
     }
     print(get_engine(provider))

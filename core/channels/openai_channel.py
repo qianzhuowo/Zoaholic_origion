@@ -14,13 +14,32 @@ from ..utils import (
     BaseAPI,
     safe_get,
     get_model_dict,
-    get_text_message,
-    get_image_message,
+    get_base64_image,
     generate_sse_response,
     end_of_line,
     upload_image_to_0x0st,
 )
 from ..response import check_response
+
+
+# ============================================================
+# OpenAI 格式化函数
+# ============================================================
+
+def format_text_message(text: str) -> dict:
+    """格式化文本消息为 OpenAI 格式"""
+    return {"type": "text", "text": text}
+
+
+async def format_image_message(image_url: str) -> dict:
+    """格式化图片消息为 OpenAI 格式"""
+    base64_image, _ = await get_base64_image(image_url)
+    return {
+        "type": "image_url",
+        "image_url": {
+            "url": base64_image,
+        }
+    }
 
 
 async def get_gpt_payload(request, engine, provider, api_key=None):
@@ -50,12 +69,12 @@ async def get_gpt_payload(request, engine, provider, api_key=None):
             content = []
             for item in msg.content:
                 if item.type == "text":
-                    text_message = await get_text_message(item.text, engine)
+                    text_message = format_text_message(item.text)
                     if "v1/responses" in url:
                         text_message["type"] = "input_text"
                     content.append(text_message)
                 elif item.type == "image_url" and provider.get("image", True) and "o1-mini" not in original_model:
-                    image_message = await get_image_message(item.image_url.url, engine)
+                    image_message = await format_image_message(item.image_url.url)
                     if "v1/responses" in url:
                         image_message = {
                             "type": "input_image",
@@ -212,6 +231,7 @@ async def fetch_gpt_response_stream(client, url, headers, payload, model, timeou
 
         input_tokens = 0
         output_tokens = 0
+        done_received = False
 
         async for chunk in response.aiter_text():
             buffer += chunk
@@ -223,8 +243,8 @@ async def fetch_gpt_response_stream(client, url, headers, payload, model, timeou
                     continue
                 if line and not line.startswith(":") and (result:=line.lstrip("data: ").strip()) and not line.startswith("event: "):
                     if result.strip() == "[DONE]":
-                        yield "data: [DONE]" + end_of_line
-                        return
+                        done_received = True
+                        break
                     line = await asyncio.to_thread(json.loads, result)
                     line['id'] = f"chatcmpl-{random_str}"
 
@@ -342,6 +362,9 @@ async def fetch_gpt_response_stream(client, url, headers, payload, model, timeou
                             del line["choices"][0]["message"]
                         json_line = await asyncio.to_thread(json.dumps, line)
                         yield "data: " + json_line.strip() + end_of_line
+            
+            if done_received:
+                break
 
     if input_tokens and output_tokens:
         sse_string = await generate_sse_response(timestamp, payload["model"], None, None, None, None, None, total_tokens=input_tokens + output_tokens, prompt_tokens=input_tokens, completion_tokens=output_tokens)

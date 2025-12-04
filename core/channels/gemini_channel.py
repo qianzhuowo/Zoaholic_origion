@@ -14,8 +14,7 @@ from ..models import Message
 from ..utils import (
     safe_get,
     get_model_dict,
-    get_text_message,
-    get_image_message,
+    get_base64_image,
     generate_sse_response,
     generate_no_stream_response,
     end_of_line,
@@ -23,6 +22,26 @@ from ..utils import (
 )
 from ..response import check_response
 from urllib.parse import urlparse
+
+
+# ============================================================
+# Gemini 格式化函数
+# ============================================================
+
+def format_text_message(text: str) -> dict:
+    """格式化文本消息为 Gemini 格式"""
+    return {"text": text}
+
+
+async def format_image_message(image_url: str) -> dict:
+    """格式化图片消息为 Gemini 格式"""
+    base64_image, image_type = await get_base64_image(image_url)
+    return {
+        "inlineData": {
+            "mimeType": image_type,
+            "data": base64_image.split(",")[1],
+        }
+    }
 
 gemini_max_token_65k_models = ["gemini-2.5-pro", "gemini-2.0-pro", "gemini-2.0-flash-thinking", "gemini-2.5-flash"]
 
@@ -67,10 +86,10 @@ async def get_gemini_payload(request, engine, provider, api_key=None):
             content = []
             for item in msg.content:
                 if item.type == "text":
-                    text_message = await get_text_message(item.text, engine)
+                    text_message = format_text_message(item.text)
                     content.append(text_message)
                 elif item.type == "image_url" and provider.get("image", True):
-                    image_message = await get_image_message(item.image_url.url, engine)
+                    image_message = await format_image_message(item.image_url.url)
                     content.append(image_message)
         elif msg.content:
             content = [{"text": msg.content}]

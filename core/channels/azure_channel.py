@@ -12,12 +12,31 @@ from datetime import datetime
 from ..utils import (
     safe_get,
     get_model_dict,
-    get_text_message,
-    get_image_message,
+    get_base64_image,
     generate_sse_response,
     end_of_line,
 )
 from ..response import check_response
+
+
+# ============================================================
+# Azure OpenAI 格式化函数
+# ============================================================
+
+def format_text_message(text: str) -> dict:
+    """格式化文本消息为 Azure OpenAI 格式"""
+    return {"type": "text", "text": text}
+
+
+async def format_image_message(image_url: str) -> dict:
+    """格式化图片消息为 Azure OpenAI 格式"""
+    base64_image, _ = await get_base64_image(image_url)
+    return {
+        "type": "image_url",
+        "image_url": {
+            "url": base64_image,
+        }
+    }
 
 
 def build_azure_endpoint(base_url, deployment_id, api_version="2025-01-01-preview"):
@@ -61,10 +80,10 @@ async def get_azure_payload(request, engine, provider, api_key=None):
             content = []
             for item in msg.content:
                 if item.type == "text":
-                    text_message = await get_text_message(item.text, engine)
+                    text_message = format_text_message(item.text)
                     content.append(text_message)
                 elif item.type == "image_url" and provider.get("image", True) and "o1-mini" not in original_model:
-                    image_message = await get_image_message(item.image_url.url, engine)
+                    image_message = await format_image_message(item.image_url.url)
                     content.append(image_message)
         else:
             content = msg.content

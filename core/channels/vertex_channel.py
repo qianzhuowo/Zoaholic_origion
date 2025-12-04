@@ -19,24 +19,106 @@ from cryptography.hazmat.primitives.asymmetric import padding
 from cryptography.hazmat.primitives.serialization import load_pem_private_key
 
 from ..utils import (
-    c3s,
-    c3o,
-    c3h,
-    c35s,
-    c4,
-    gemini1,
-    gemini_preview,
-    gemini2_5_pro_exp,
     safe_get,
     get_model_dict,
-    get_text_message,
-    get_image_message,
+    get_base64_image,
     generate_sse_response,
     end_of_line,
     parse_json_safely,
+    ThreadSafeCircularList,
 )
 from ..response import check_response
 from .claude_channel import gpt2claude_tools_json
+
+
+# ============================================================
+# Vertex Gemini 格式化函数
+# ============================================================
+
+def format_gemini_text_message(text: str) -> dict:
+    """格式化文本消息为 Vertex Gemini 格式"""
+    return {"text": text}
+
+
+async def format_gemini_image_message(image_url: str) -> dict:
+    """格式化图片消息为 Vertex Gemini 格式"""
+    base64_image, image_type = await get_base64_image(image_url)
+    return {
+        "inlineData": {
+            "mimeType": image_type,
+            "data": base64_image.split(",")[1],
+        }
+    }
+
+
+# ============================================================
+# Vertex Claude 格式化函数
+# ============================================================
+
+def format_claude_text_message(text: str) -> dict:
+    """格式化文本消息为 Vertex Claude 格式"""
+    return {"type": "text", "text": text}
+
+
+async def format_claude_image_message(image_url: str) -> dict:
+    """格式化图片消息为 Vertex Claude 格式"""
+    base64_image, image_type = await get_base64_image(image_url)
+    return {
+        "type": "image",
+        "source": {
+            "type": "base64",
+            "media_type": image_type,
+            "data": base64_image.split(",")[1],
+        }
+    }
+
+# ============================================================
+# Vertex AI 区域配置
+# 参考文档:
+# - Claude: https://cloud.google.com/vertex-ai/generative-ai/docs/partner-models/use-claude?hl=zh_cn
+# - Gemini: https://cloud.google.com/vertex-ai/generative-ai/docs/learn/locations?hl=zh-cn#available-regions
+# ============================================================
+
+# Claude 3.5 Sonnet / Claude 3.7 Sonnet / Claude 4.5
+c35s = ThreadSafeCircularList(["us-east5", "europe-west1"])
+
+# Claude 3 Sonnet
+c3s = ThreadSafeCircularList(["us-east5", "us-central1", "asia-southeast1"])
+
+# Claude 3 Opus
+c3o = ThreadSafeCircularList(["us-east5"])
+
+# Claude 4 (Sonnet/Opus)
+c4 = ThreadSafeCircularList(["us-east5", "europe-west1", "asia-east1"])
+
+# Claude 3 Haiku
+c3h = ThreadSafeCircularList(["us-east5", "us-central1", "europe-west1", "europe-west4"])
+
+# Gemini 1.x 系列
+gemini1 = ThreadSafeCircularList(["us-central1", "us-east4", "us-west1", "us-west4", "europe-west1", "europe-west2"])
+
+# Gemini Preview 模型 (global)
+gemini_preview = ThreadSafeCircularList(["global"])
+
+# Gemini 2.5 Pro 系列
+gemini2_5_pro_exp = ThreadSafeCircularList([
+    "us-central1",
+    "us-east1",
+    "us-east4",
+    "us-east5",
+    "us-south1",
+    "us-west1",
+    "us-west4",
+    "europe-central2",
+    "europe-north1",
+    "europe-southwest1",
+    "europe-west1",
+    "europe-west4",
+    "europe-west8",
+    "europe-west9"
+])
+
+# ============================================================
 
 gemini_max_token_65k_models = ["gemini-2.5-pro", "gemini-2.0-pro", "gemini-2.0-flash-thinking", "gemini-2.5-flash"]
 
@@ -154,10 +236,10 @@ async def get_vertex_gemini_payload(request, engine, provider, api_key=None):
             content = []
             for item in msg.content:
                 if item.type == "text":
-                    text_message = await get_text_message(item.text, engine)
+                    text_message = format_gemini_text_message(item.text)
                     content.append(text_message)
                 elif item.type == "image_url" and provider.get("image", True):
-                    image_message = await get_image_message(item.image_url.url, engine)
+                    image_message = await format_gemini_image_message(item.image_url.url)
                     content.append(image_message)
         elif msg.content:
             content = [{"text": msg.content}]
@@ -376,10 +458,10 @@ async def get_vertex_claude_payload(request, engine, provider, api_key=None):
             content = []
             for item in msg.content:
                 if item.type == "text":
-                    text_message = await get_text_message(item.text, engine)
+                    text_message = format_claude_text_message(item.text)
                     content.append(text_message)
                 elif item.type == "image_url" and provider.get("image", True):
-                    image_message = await get_image_message(item.image_url.url, engine)
+                    image_message = await format_claude_image_message(item.image_url.url)
                     content.append(image_message)
         else:
             content = msg.content

@@ -12,12 +12,33 @@ from datetime import datetime
 from ..utils import (
     safe_get,
     get_model_dict,
-    get_text_message,
-    get_image_message,
+    get_base64_image,
     generate_sse_response,
     end_of_line,
 )
 from ..response import check_response
+
+
+# ============================================================
+# Claude 格式化函数
+# ============================================================
+
+def format_text_message(text: str) -> dict:
+    """格式化文本消息为 Claude 格式"""
+    return {"type": "text", "text": text}
+
+
+async def format_image_message(image_url: str) -> dict:
+    """格式化图片消息为 Claude 格式"""
+    base64_image, image_type = await get_base64_image(image_url)
+    return {
+        "type": "image",
+        "source": {
+            "type": "base64",
+            "media_type": image_type,
+            "data": base64_image.split(",")[1],
+        }
+    }
 
 
 async def gpt2claude_tools_json(json_dict):
@@ -108,10 +129,10 @@ async def get_claude_payload(request, engine, provider, api_key=None):
             content = []
             for item in msg.content:
                 if item.type == "text":
-                    text_message = await get_text_message(item.text, engine)
+                    text_message = format_text_message(item.text)
                     content.append(text_message)
                 elif item.type == "image_url" and provider.get("image", True):
-                    image_message = await get_image_message(item.image_url.url, engine)
+                    image_message = await format_image_message(item.image_url.url)
                     content.append(image_message)
         else:
             content = msg.content
