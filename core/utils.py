@@ -127,12 +127,12 @@ def get_engine(provider, endpoint=None, original_model=""):
         engine = "cohere"
         stream = True
     else:
-        engine = "gpt"
+        engine = "openai"
 
     original_model = original_model.lower()
     if original_model \
     and "claude" not in original_model \
-    and "gpt" not in original_model \
+    and "openai" not in original_model \
     and "deepseek" not in original_model \
     and "o1" not in original_model \
     and "o3" not in original_model \
@@ -804,7 +804,7 @@ async def get_image_message(base64_image, engine = None):
         base64_image = f"data:image/png;base64,{png_base64}"
         image_type = "image/png"
 
-    if "gpt" == engine or "openrouter" == engine or "azure" == engine or "azure-databricks" == engine:
+    if "openai" == engine or "openrouter" == engine or "azure" == engine or "azure-databricks" == engine:
         return {
             "type": "image_url",
             "image_url": {
@@ -832,7 +832,7 @@ async def get_image_message(base64_image, engine = None):
     raise ValueError("Unknown engine")
 
 async def get_text_message(message, engine = None):
-    if "gpt" == engine or "claude" == engine or "openrouter" == engine or \
+    if "openai" == engine or "claude" == engine or "openrouter" == engine or \
     "vertex-claude" == engine or "azure" == engine or "aws" == engine or \
     "azure-databricks" == engine:
         return {"type": "text", "text": message}

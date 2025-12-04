@@ -36,7 +36,7 @@ ModelsAdapter = Callable[
 class ChannelDefinition:
     """
     通用渠道定义:
-    - id: 渠道唯一标识(通常对应 engine, 如 "gpt" / "gemini" / "vertex-gemini")
+    - id: 渠道唯一标识(通常对应 engine, 如 "openai" / "gemini" / "vertex-gemini")
     - type_name: 渠道类型名(如 "openai" / "gemini" 等, 用于分类/展示)
     - default_base_url: 默认的 Base URL (可选, 用于前端自动填充)
     - auth_header: 认证头格式 (可选, 如 "Bearer {api_key}" 或 "x-api-key: {api_key}")

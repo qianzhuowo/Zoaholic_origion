@@ -15,9 +15,9 @@ import httpx
 from fastapi import HTTPException, BackgroundTasks
 from fastapi.responses import JSONResponse
 from starlette.responses import Response
-from starlette.responses import StreamingResponse as StarletteStreamingResponse
 
 from core.log_config import logger
+from core.streaming import LoggingStreamingResponse
 from core.request import get_payload
 from core.response import fetch_response, fetch_response_stream
 from core.models import (
@@ -189,12 +189,18 @@ async def process_request(
                     app.state.error_triggers, keepalive_interval=keepalive_interval,
                     last_message_role=last_message_role
                 )
-                response = StarletteStreamingResponse(wrapped_generator, media_type="text/event-stream")
+                response = LoggingStreamingResponse(
+                    wrapped_generator,
+                    media_type="text/event-stream",
+                    current_info=current_info,
+                    app=app,
+                    debug=is_debug
+                )
             else:
                 generator = fetch_response(client, url, headers, payload, engine, original_model, timeout_value)
                 wrapped_generator, first_response_time = await error_handling_wrapper(
-                    generator, channel_id, engine, request.stream, 
-                    app.state.error_triggers, keepalive_interval=keepalive_interval, 
+                    generator, channel_id, engine, request.stream,
+                    app.state.error_triggers, keepalive_interval=keepalive_interval,
                     last_message_role=last_message_role
                 )
 
@@ -207,7 +213,18 @@ async def process_request(
                     first_element = first_element.lstrip("data: ")
                     decoded_element = await asyncio.to_thread(json.loads, first_element)
                     encoded_element = await asyncio.to_thread(json.dumps, decoded_element)
-                    response = StarletteStreamingResponse(iter([encoded_element]), media_type="application/json")
+                    
+                    # 非流式响应也需要记录统计
+                    async def non_stream_iter():
+                        yield encoded_element
+                    
+                    response = LoggingStreamingResponse(
+                        non_stream_iter(),
+                        media_type="application/json",
+                        current_info=current_info,
+                        app=app,
+                        debug=is_debug
+                    )
 
             # 更新成功计数和首次响应时间
             background_tasks.add_task(
