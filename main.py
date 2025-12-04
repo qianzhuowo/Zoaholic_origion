@@ -305,16 +305,23 @@ app.mount("/", StaticFiles(directory="./static", html=True), name="static")
 
 if __name__ == '__main__':
     import uvicorn
-    import os
     PORT = int(os.getenv("PORT", "8000"))
-    uvicorn.run(
-        "__main__:app",
-        host="0.0.0.0",
-        port=PORT,
-        reload=True,
-        reload_dirs=["./"],
-        reload_includes=["*.py", "api.yaml"],
-        reload_excludes=["./data"],
-        ws="none",
-        # log_level="warning"
-    )
+    RELOAD = os.getenv("RELOAD", "false").lower() in ("true", "1", "yes")
+    
+    uvicorn_config = {
+        "host": "0.0.0.0",
+        "port": PORT,
+        "ws": "none",
+        # "log_level": "warning"
+    }
+    
+    if RELOAD:
+        uvicorn_config.update({
+            "reload": True,
+            "reload_dirs": ["./"],
+            "reload_includes": ["*.py", "api.yaml"],
+            "reload_excludes": ["./data"],
+        })
+        uvicorn.run("main:app", **uvicorn_config)
+    else:
+        uvicorn.run(app, **uvicorn_config)

@@ -121,6 +121,11 @@ cp api.yaml.example api.yaml
 
 # 启动服务
 python main.py
+
+# 开发模式（启用热重载）
+RELOAD=true python main.py
+# 或使用 uvicorn 命令
+python -m uvicorn main:app --host 0.0.0.0 --port 8000 --reload
 ```
 
 ### 方法三：使用 CONFIG_URL
@@ -595,6 +600,7 @@ api_keys:
 | `PORT` | 服务端口 | 8000 |
 | `TIMEOUT` | 默认超时时间（秒） | 100 |
 | `DEBUG` | 调试模式 | false |
+| `RELOAD` | 启用热重载（开发模式） | false |
 | `CONFIG_URL` | 远程配置文件 URL | - |
 | `DISABLE_DATABASE` | 禁用数据库 | false |
 
