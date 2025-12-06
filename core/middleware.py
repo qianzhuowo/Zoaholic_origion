@@ -27,6 +27,7 @@ from core.log_config import logger
 from core.models import ModerationRequest, UnifiedRequest
 from core.streaming import LoggingStreamingResponse
 from core.stats import update_stats
+from core.utils import truncate_for_logging
 from utils import safe_get
 from db import DISABLE_DATABASE
 
@@ -266,12 +267,9 @@ class StatsMiddleware:
                           if k not in ("authorization", "x-api-key")}
             current_info["request_headers"] = json.dumps(safe_headers, ensure_ascii=False)
             
-            # 保存请求体（限制大小，避免存储过大数据）
-            max_body_size = 100 * 1024  # 100KB
-            if body_bytes and len(body_bytes) <= max_body_size:
-                current_info["request_body"] = body_bytes.decode("utf-8", errors="replace")
-            elif body_bytes:
-                current_info["request_body"] = f"[Body too large: {len(body_bytes)} bytes]"
+            # 保存请求体（使用深度截断，保留结构同时限制大小）
+            if body_bytes:
+                current_info["request_body"] = truncate_for_logging(body_bytes)
             
             # 设置过期时间
             current_info["raw_data_expires_at"] = datetime.now(timezone.utc) + timedelta(hours=raw_data_retention_hours)

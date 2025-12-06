@@ -120,28 +120,43 @@ async def get_payload(request: RequestModel, engine, provider, api_key=None):
         # 先由具体渠道适配器构建 URL / headers / payload
         url, headers, payload = await channel.request_adapter(request, engine, provider, api_key)
 
-        # 统一应用 参数覆写
-        # 1) all：对该渠道下所有模型生效
-        # 2) <model_name>：仅对指定模型生效（按 RequestModel.model 别名匹配）
+        # 统一应用参数覆写（支持 all/*、模型别名、原始模型名，且深度合并）
         overrides = safe_get(provider, "preferences", "post_body_parameter_overrides", default={})
+        model_dict = get_model_dict(provider)
+        original_model = model_dict.get(request.model, request.model)
 
         if isinstance(overrides, dict) and overrides:
-            # 先应用全局 all 覆写：
-            # - 对该渠道下所有模型生效
-            # - 仅在 payload 中不存在同名字段时才写入，避免覆盖模型级覆写和适配器默认值
-            all_overrides = safe_get(overrides, "all", default=None)
-            if isinstance(all_overrides, dict):
-                for k, v in all_overrides.items():
-                    if k not in payload:
-                        payload[k] = v
+            def _deep_merge(target, override):
+                if isinstance(target, dict) and isinstance(override, dict):
+                    for _k, _v in override.items():
+                        if isinstance(_v, dict) and isinstance(target.get(_k), dict):
+                            _deep_merge(target[_k], _v)
+                        else:
+                            target[_k] = _v
+                else:
+                    return override
 
-            # 再应用当前模型名对应的覆写：
-            # - key 必须等于 request.model（即配置里的模型别名）
-            # - 允许覆盖适配器默认写入以及 all 覆写
-            model_overrides = safe_get(overrides, request.model, default=None)
-            if isinstance(model_overrides, dict):
-                for k, v in model_overrides.items():
-                    payload[k] = v
+            # 全局 all / * 覆写
+            for global_key in ("all", "*"):
+                global_override = safe_get(overrides, global_key, default=None)
+                if isinstance(global_override, dict):
+                    _deep_merge(payload, global_override)
+
+            # 模型别名和原始模型名覆写
+            for model_key in {request.model, original_model}:
+                model_override = safe_get(overrides, model_key, default=None)
+                if isinstance(model_override, dict):
+                    _deep_merge(payload, model_override)
+
+            # 其余键（无空格和短横线）作为顶层字段覆写，保持与旧逻辑兼容
+            for key, value in overrides.items():
+                if key in ("all", "*", request.model, original_model):
+                    continue
+                if "-" not in key and " " not in key:
+                    if key in payload and isinstance(payload[key], dict) and isinstance(value, dict):
+                        _deep_merge(payload[key], value)
+                    else:
+                        payload[key] = value
 
         # 获取该渠道启用的插件列表
         enabled_plugins = safe_get(provider, "preferences", "enabled_plugins", default=None)

@@ -12,7 +12,7 @@ from typing import Optional, List
 
 from .log_config import logger
 from .middleware import request_info
-from .utils import safe_get, generate_sse_response, generate_no_stream_response, end_of_line
+from .utils import safe_get, generate_sse_response, generate_no_stream_response, end_of_line, truncate_for_logging
 from .plugins.interceptors import apply_response_interceptors
 
 
@@ -34,16 +34,11 @@ async def check_response(response, error_log):
         error_message = await response.aread()
         error_str = error_message.decode('utf-8', errors='replace')
         
-        # 记录失败的上游响应
+        # 记录失败的上游响应（使用深度截断，保留结构同时限制大小）
         try:
             current_info = request_info.get()
             if current_info and current_info.get("raw_data_expires_at") is not None:
-                # 限制大小
-                max_size = 100 * 1024  # 100KB
-                if len(error_str) > max_size:
-                    current_info["upstream_response_body"] = error_str[:max_size] + f"\n[Truncated, total size: {len(error_str)} bytes]"
-                else:
-                    current_info["upstream_response_body"] = error_str
+                current_info["upstream_response_body"] = truncate_for_logging(error_str)
         except Exception as e:
             logger.error(f"Error saving upstream error response: {str(e)}")
         
@@ -107,9 +102,8 @@ def _wrap_response_aiter_text(response):
             if upstream_chunks and captured_info:
                 try:
                     upstream_response = "".join(upstream_chunks)
-                    if total_size >= max_size:
-                        upstream_response += f"\n[Truncated, total size: {total_size} bytes]"
-                    captured_info["upstream_response_body"] = upstream_response
+                    # 使用深度截断，保留结构同时限制大小
+                    captured_info["upstream_response_body"] = truncate_for_logging(upstream_response)
                 except Exception as e:
                     logger.error(f"Error saving upstream response body: {str(e)}")
     
@@ -142,13 +136,8 @@ def _save_upstream_response_for_non_stream(response):
     try:
         # 非流式响应的内容已经存储在 response._content 中
         if hasattr(response, '_content') and response._content:
-            max_size = 100 * 1024  # 100KB
-            content = response._content
-            if len(content) <= max_size:
-                upstream_response = content.decode('utf-8', errors='replace')
-            else:
-                upstream_response = content[:max_size].decode('utf-8', errors='replace') + f"\n[Truncated, total size: {len(content)} bytes]"
-            captured_info["upstream_response_body"] = upstream_response
+            # 使用深度截断，保留结构同时限制大小
+            captured_info["upstream_response_body"] = truncate_for_logging(response._content)
     except Exception as e:
         logger.error(f"Error saving upstream response for non-stream: {str(e)}")
 

@@ -13,6 +13,7 @@ from starlette.types import Scope, Receive, Send
 
 from core.log_config import logger
 from core.stats import update_stats
+from core.utils import truncate_for_logging
 from utils import safe_get
 
 
@@ -171,13 +172,11 @@ class LoggingStreamingResponse(Response):
             # 透传原始 chunk
             yield chunk
         
-        # 保存返回给用户的响应体（即经过转换后的 OpenAI 格式）
+        # 保存返回给用户的响应体（使用深度截断，保留结构同时限制大小）
         if should_save_response and response_chunks:
             try:
-                response_body = b"".join(response_chunks).decode("utf-8", errors="replace")
-                if total_response_size >= max_response_size:
-                    response_body += f"\n[Truncated, total size: {total_response_size} bytes]"
-                self.current_info["response_body"] = response_body
+                response_body = b"".join(response_chunks)
+                self.current_info["response_body"] = truncate_for_logging(response_body)
             except Exception as e:
                 logger.error(f"Error saving response body: {str(e)}")
 

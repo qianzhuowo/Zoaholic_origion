@@ -494,9 +494,16 @@ const LogsView = {
             // 补全tokens
             const completionTd = UI.el("td", "px-3 py-3 text-center align-top");
             completionTd.appendChild(
-                UI.el("span", "text-body-medium text-md-on-surface",
+                UI.el("div", "text-body-medium text-md-on-surface",
                     log.completion_tokens != null ? String(log.completion_tokens) : "-")
             );
+            // 计算并显示速度 (token/s)
+            const speedInfo = LogsView._calculateTokenSpeed(log);
+            if (speedInfo) {
+                completionTd.appendChild(
+                    UI.el("div", `text-body-small ${speedInfo.colorClass}`, speedInfo.text)
+                );
+            }
 
             // 重试次数
             const retryTd = UI.el("td", "px-3 py-3 text-center align-top");
@@ -590,7 +597,11 @@ const LogsView = {
             infoRow.appendChild(LogsView._createInfoItem("用时", log.process_time != null ? `${log.process_time.toFixed(2)}s` : "-"));
             infoRow.appendChild(LogsView._createInfoItem("首字", log.first_response_time != null && log.first_response_time >= 0 ? `${log.first_response_time.toFixed(2)}s` : "-"));
             infoRow.appendChild(LogsView._createInfoItem("提示", log.prompt_tokens != null ? String(log.prompt_tokens) : "-"));
-            infoRow.appendChild(LogsView._createInfoItem("补全", log.completion_tokens != null ? String(log.completion_tokens) : "-"));
+            // 补全 + 速度
+            const completionText = log.completion_tokens != null ? String(log.completion_tokens) : "-";
+            const mobileSpeedInfo = LogsView._calculateTokenSpeed(log);
+            const completionDisplay = mobileSpeedInfo ? `${completionText} (${mobileSpeedInfo.text})` : completionText;
+            infoRow.appendChild(LogsView._createInfoItem("补全", completionDisplay));
             card.appendChild(infoRow);
 
             // 展开的详情
@@ -1133,5 +1144,35 @@ const LogsView = {
         } catch {
             return String(value);
         }
+    },
+
+    /**
+     * 计算 token 生成速度
+     * @param {Object} log - 日志对象
+     * @returns {Object|null} - { text: "xx.x t/s", colorClass: "text-..." } 或 null
+     */
+    _calculateTokenSpeed(log) {
+        // 需要有 completion_tokens、process_time、first_response_time
+        if (log.completion_tokens == null || log.completion_tokens <= 0) return null;
+        if (log.process_time == null || log.first_response_time == null) return null;
+        if (log.first_response_time < 0) return null;
+        
+        const generationTime = log.process_time - log.first_response_time;
+        if (generationTime <= 0) return null;
+        
+        const speed = log.completion_tokens / generationTime;
+        const text = `${speed.toFixed(1)} t/s`;
+        
+        // 根据速度设置颜色
+        let colorClass = "text-md-on-surface-variant";
+        if (speed >= 100) {
+            colorClass = "text-md-tertiary"; // 非常快
+        } else if (speed >= 50) {
+            colorClass = "text-md-primary"; // 快
+        } else if (speed < 20) {
+            colorClass = "text-md-error"; // 慢
+        }
+        
+        return { text, colorClass };
     },
 };

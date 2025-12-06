@@ -228,6 +228,111 @@ def safe_get(data, *keys, default=None):
         return default
     return data
 
+
+
+def truncate_for_logging(
+    data,
+    max_total_size: int = 100 * 1024,
+    max_str_length: int = 2000,
+    max_items: int = 50,
+    max_depth: int = 8,
+):
+    """
+    深度遍历并截断日志数据：保留结构，限制单项长度/数量/深度。
+
+    - 字符串超过 max_str_length 进行截断并标注剩余长度
+    - list/dict 超过 max_items 仅保留前 max_items 项并标注剩余
+    - 深度超过 max_depth 返回占位说明
+    - 最终序列化后若总长度超过 max_total_size 进行总长度截断
+    """
+
+    def _truncate(obj, depth):
+        if depth >= max_depth:
+            return "[已截断：已达到最大深度]"
+
+        if isinstance(obj, str):
+            if len(obj) > max_str_length:
+                return obj[:max_str_length] + f"... [截断 {len(obj) - max_str_length} 字符]"
+            return obj
+
+        if isinstance(obj, (int, float, bool)) or obj is None:
+            return obj
+
+        if isinstance(obj, dict):
+            truncated_dict = {}
+            for idx, (k, v) in enumerate(obj.items()):
+                if idx >= max_items:
+                    truncated_dict["__truncated_keys__"] = f"[{len(obj) - max_items} 更多项]"
+                    break
+                key_str = k if isinstance(k, str) else str(k)
+                truncated_dict[key_str] = _truncate(v, depth + 1)
+            return truncated_dict
+
+        if isinstance(obj, list):
+            truncated_list = []
+            for idx, item in enumerate(obj):
+                if idx >= max_items:
+                    truncated_list.append(f"[... {len(obj) - max_items} 更多项]")
+                    break
+                truncated_list.append(_truncate(item, depth + 1))
+            return truncated_list
+
+        return str(obj)
+
+    def _truncate_sse(text):
+        """处理 SSE 格式的流式响应，对每个事件的 JSON 内部进行截断"""
+        lines = text.replace('\r\n', '\n').split('\n')
+        result_lines = []
+        
+        for line in lines:
+            if line.startswith('data: '):
+                data_str = line[6:]  # 去掉 "data: " 前缀
+                if data_str == '[DONE]':
+                    result_lines.append(line)
+                else:
+                    try:
+                        parsed = json.loads(data_str)
+                        truncated = _truncate(parsed, 0)
+                        result_lines.append('data: ' + json.dumps(truncated, ensure_ascii=False))
+                    except Exception:
+                        # 解析失败，保留原始行
+                        result_lines.append(line)
+            else:
+                # 非 data: 行（空行、注释、event: 等）保留原样
+                result_lines.append(line)
+        
+        return '\n'.join(result_lines)
+
+    try:
+        if isinstance(data, (bytes, bytearray)):
+            data = data.decode("utf-8", errors="replace")
+
+        if isinstance(data, str):
+            # 检测是否是 SSE 格式（以 "data: " 开头）
+            stripped = data.strip()
+            if stripped.startswith('data: '):
+                # SSE 流式响应格式，对每个事件块内部进行截断
+                serialized = _truncate_sse(data)
+            else:
+                try:
+                    parsed = json.loads(data)
+                    truncated_obj = _truncate(parsed, 0)
+                    serialized = json.dumps(truncated_obj, ensure_ascii=False)
+                except Exception:
+                    truncated_obj = _truncate(data, 0)
+                    serialized = json.dumps(truncated_obj, ensure_ascii=False)
+        else:
+            truncated_obj = _truncate(data, 0)
+            serialized = json.dumps(truncated_obj, ensure_ascii=False)
+    except Exception:
+        serialized = str(data)
+
+    if len(serialized) > max_total_size:
+        serialized = serialized[:max_total_size] + f"... [截断总计 {len(serialized) - max_total_size} 字符]"
+
+    return serialized
+
+
 def parse_rate_limit(limit_string):
     # 定义时间单位到秒的映射
     time_units = {

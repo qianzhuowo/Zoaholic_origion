@@ -30,7 +30,7 @@ from core.models import (
     ModerationRequest,
     EmbeddingRequest,
 )
-from core.utils import get_engine, provider_api_circular_list
+from core.utils import get_engine, provider_api_circular_list, truncate_for_logging
 from core.routing import get_right_order_providers
 from utils import safe_get, error_handling_wrapper
 
@@ -177,12 +177,9 @@ async def process_request(
     # 记录发送到上游的请求体（如果配置了保留时间）
     if current_info.get("raw_data_expires_at"):
         try:
-            max_body_size = 100 * 1024  # 100KB
-            upstream_body_str = json.dumps({k: v for k, v in payload.items() if k != 'file'}, ensure_ascii=False)
-            if len(upstream_body_str) <= max_body_size:
-                current_info["upstream_request_body"] = upstream_body_str
-            else:
-                current_info["upstream_request_body"] = f"[Body too large: {len(upstream_body_str)} bytes]"
+            # 使用深度截断，保留结构同时限制大小
+            upstream_payload = {k: v for k, v in payload.items() if k != 'file'}
+            current_info["upstream_request_body"] = truncate_for_logging(upstream_payload)
         except Exception as e:
             logger.error(f"Error saving upstream request body: {str(e)}")
     # 确保日志中一定记录模型名（使用当前请求对象上的 model）
