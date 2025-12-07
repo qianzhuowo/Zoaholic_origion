@@ -18,6 +18,7 @@ class RequestStat(Base):
     client_ip = Column(String)
     process_time = Column(Float)
     first_response_time = Column(Float)
+    content_start_time = Column(Float, nullable=True)  # 正文开始时间（首个非空content）
     provider = Column(String, index=True)
     model = Column(String, index=True)
     api_key = Column(String, index=True)

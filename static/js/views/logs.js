@@ -1148,16 +1148,29 @@ const LogsView = {
 
     /**
      * 计算 token 生成速度
+     * 对于推理模型，优先使用 content_start_time（正文开始时间）来计算正文生成速度
+     * 这样可以排除思维链时间，更准确地反映正文生成速度
+     *
      * @param {Object} log - 日志对象
      * @returns {Object|null} - { text: "xx.x t/s", colorClass: "text-..." } 或 null
      */
     _calculateTokenSpeed(log) {
-        // 需要有 completion_tokens、process_time、first_response_time
+        // 需要有 completion_tokens 和 process_time
         if (log.completion_tokens == null || log.completion_tokens <= 0) return null;
-        if (log.process_time == null || log.first_response_time == null) return null;
-        if (log.first_response_time < 0) return null;
+        if (log.process_time == null) return null;
         
-        const generationTime = log.process_time - log.first_response_time;
+        // 优先使用 content_start_time（正文开始时间）
+        // 对于推理模型，这是正文开始输出的时间，可以准确计算正文生成速度
+        let startTime = null;
+        if (log.content_start_time != null && log.content_start_time >= 0) {
+            startTime = log.content_start_time;
+        } else if (log.first_response_time != null && log.first_response_time >= 0) {
+            startTime = log.first_response_time;
+        }
+        
+        if (startTime == null) return null;
+        
+        const generationTime = log.process_time - startTime;
         if (generationTime <= 0) return null;
         
         const speed = log.completion_tokens / generationTime;

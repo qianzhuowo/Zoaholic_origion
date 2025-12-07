@@ -113,6 +113,7 @@ class LoggingStreamingResponse(Response):
         max_response_size = 100 * 1024  # 100KB
         total_response_size = 0
         should_save_response = self.current_info.get("raw_data_expires_at") is not None
+        content_start_recorded = False  # 标记是否已记录正文开始时间
         
         async for chunk in self.body_iterator:
             if isinstance(chunk, str):
@@ -151,6 +152,16 @@ class LoggingStreamingResponse(Response):
                 # 尝试解析 JSON
                 try:
                     resp = await asyncio.to_thread(json.loads, line)
+                    
+                    # 检测正文开始时间（首个非空 content，不含 reasoning_content）
+                    # 所有渠道的响应已被 channel adapter 转换为 OpenAI 兼容格式
+                    if not content_start_recorded:
+                        content = safe_get(resp, "choices", 0, "delta", "content", default=None)
+                        # 检查是否有实际内容（非空字符串）
+                        if content and content.strip():
+                            self.current_info["content_start_time"] = time() - self.current_info.get("start_time", time())
+                            content_start_recorded = True
+                    
                     # Claude API 的 usage 字段
                     input_tokens = safe_get(resp, "message", "usage", "input_tokens", default=0)
                     # OpenAI 兼容的 usage 字段
