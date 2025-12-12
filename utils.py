@@ -104,19 +104,41 @@ async def update_config(config_data, use_config_url=False, skip_model_fetch=Fals
         if provider_api:
             if isinstance(provider_api, int):
                 provider_api = str(provider_api)
+            
+            # 解析 API key 列表，支持 ! 前缀标记禁用的 key
+            # 格式：正常 key 直接使用，以 ! 开头的 key 表示禁用
+            def parse_api_keys(api_list):
+                """解析 API key 列表，返回 (items, disabled_keys)"""
+                items = []
+                disabled_keys = set()
+                for key in api_list:
+                    key_str = str(key).strip()
+                    if key_str.startswith('!'):
+                        # 禁用的 key：去掉 ! 前缀，加入禁用集合
+                        clean_key = key_str[1:]
+                        items.append(clean_key)
+                        disabled_keys.add(clean_key)
+                    else:
+                        items.append(key_str)
+                return items, disabled_keys
+            
             if isinstance(provider_api, str):
+                items, disabled_keys = parse_api_keys([provider_api])
                 provider_api_circular_list[provider['provider']] = ThreadSafeCircularList(
-                    items=[provider_api],
+                    items=items,
                     rate_limit=safe_get(provider, "preferences", "api_key_rate_limit", default={"default": "999999/min"}),
                     schedule_algorithm=safe_get(provider, "preferences", "api_key_schedule_algorithm", default="round_robin"),
-                    provider_name=provider['provider']
+                    provider_name=provider['provider'],
+                    disabled_keys=disabled_keys
                 )
             if isinstance(provider_api, list):
+                items, disabled_keys = parse_api_keys(provider_api)
                 provider_api_circular_list[provider['provider']] = ThreadSafeCircularList(
-                    items=provider_api,
+                    items=items,
                     rate_limit=safe_get(provider, "preferences", "api_key_rate_limit", default={"default": "999999/min"}),
                     schedule_algorithm=safe_get(provider, "preferences", "api_key_schedule_algorithm", default="round_robin"),
-                    provider_name=provider['provider']
+                    provider_name=provider['provider'],
+                    disabled_keys=disabled_keys
                 )
 
         if "models.inference.ai.azure.com" in provider['base_url'] and not provider.get("model"):

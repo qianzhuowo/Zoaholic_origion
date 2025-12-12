@@ -45,6 +45,8 @@ REASONING_EFFORT_LEVELS = {
     "-medium": "medium",
     "-low": "low",
     "-minimal": "minimal",
+    "-none": "none",
+    "-xhigh": "xhigh",
 }
 
 

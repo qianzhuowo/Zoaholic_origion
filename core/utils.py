@@ -367,10 +367,12 @@ def parse_rate_limit(limit_string):
     return limits
 
 class ThreadSafeCircularList:
-    def __init__(self, items = [], rate_limit={"default": "999999/min"}, schedule_algorithm="round_robin", provider_name=None):
+    def __init__(self, items = [], rate_limit={"default": "999999/min"}, schedule_algorithm="round_robin", provider_name=None, disabled_keys=None):
         self.provider_name = provider_name
         self.original_items = list(items)
         self.schedule_algorithm = schedule_algorithm
+        # 存储禁用的 key 集合
+        self.disabled_keys = set(disabled_keys) if disabled_keys else set()
 
         if schedule_algorithm == "random":
             self.items = random.sample(items, len(items))
@@ -448,8 +450,42 @@ class ThreadSafeCircularList:
             # self.requests[item] = []
             logger.warning(f"API key {item} 已进入冷却状态，冷却时间 {cooling_time} 秒")
 
+    def is_key_disabled(self, item: str) -> bool:
+        """检查某个 key 是否被禁用
+        
+        Args:
+            item: API key
+            
+        Returns:
+            bool: 如果 key 被禁用返回 True，否则返回 False
+        """
+        return item in self.disabled_keys
+    
+    def set_key_disabled(self, item: str, disabled: bool = True):
+        """设置某个 key 的禁用状态
+        
+        Args:
+            item: API key
+            disabled: True 表示禁用，False 表示启用
+        """
+        if disabled:
+            self.disabled_keys.add(item)
+        else:
+            self.disabled_keys.discard(item)
+    
+    def update_disabled_keys(self, disabled_keys: set):
+        """更新禁用的 key 集合
+        
+        Args:
+            disabled_keys: 新的禁用 key 集合
+        """
+        self.disabled_keys = set(disabled_keys) if disabled_keys else set()
+
     async def is_rate_limited(self, item, model: str = None, is_check: bool = False) -> bool:
         now = time()
+        # 检查是否被禁用
+        if self.is_key_disabled(item):
+            return True
         # 检查是否在冷却中
         if now < self.cooling_until[item]:
             return True
@@ -560,12 +596,23 @@ class ThreadSafeCircularList:
 
         async with self.lock:
             for item in self.items:
+                # 跳过禁用的 key
+                if self.is_key_disabled(item):
+                    continue
                 if not await self.is_rate_limited(item, model, is_check=True):
                     return False
 
             # 如果遍历完所有items都被限制，返回True
             # logger.debug(f"Check result: all items are rate limited!")
             return True
+    
+    def get_enabled_items_count(self) -> int:
+        """返回启用的项目数量
+        
+        Returns:
+            int: 启用的 items 数量
+        """
+        return len([item for item in self.items if not self.is_key_disabled(item)])
 
     async def after_next_current(self):
         # 返回当前取出的 API，因为已经调用了 next，所以当前API应该是上一个

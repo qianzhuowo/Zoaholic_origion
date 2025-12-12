@@ -1014,7 +1014,7 @@ const ConfigView = {
             name: originalProvider?.provider || originalProvider?.name || "",
             // 新建渠道时不自动填入具体 URL，留空并通过 placeholder 提示
             base_url: originalProvider?.base_url || "",
-            api_keys: [],
+            api_keys: [],  // 格式: [{key: "sk-xxx", disabled: false}, ...]
             models: [],
             modelMappings: [],
             engine: originalProvider?.engine || "",
@@ -1023,15 +1023,24 @@ const ConfigView = {
             preferences: { ...rawPreferences },
         };
 
+        // 解析 API key，支持 ! 前缀标记禁用的 key
+        const parseApiKey = (keyStr) => {
+            const trimmed = String(keyStr).trim();
+            if (trimmed.startsWith('!')) {
+                return { key: trimmed.substring(1), disabled: true };
+            }
+            return { key: trimmed, disabled: false };
+        };
+
         if (originalProvider) {
             if (originalProvider.api !== undefined && originalProvider.api !== null) {
                 if (Array.isArray(originalProvider.api)) {
-                    providerData.api_keys = originalProvider.api.slice();
+                    providerData.api_keys = originalProvider.api.map(parseApiKey);
                 } else if (typeof originalProvider.api === "string" && originalProvider.api.trim()) {
-                    providerData.api_keys = [originalProvider.api.trim()];
+                    providerData.api_keys = [parseApiKey(originalProvider.api.trim())];
                 }
             } else if (Array.isArray(originalProvider.api_keys)) {
-                providerData.api_keys = originalProvider.api_keys.slice();
+                providerData.api_keys = originalProvider.api_keys.map(parseApiKey);
             }
 
             const modelArray = Array.isArray(originalProvider.model) ? originalProvider.model : originalProvider.models;
@@ -1215,7 +1224,7 @@ Object.assign(ConfigView, {
                     UI.el(
                         "div",
                         "mt-2 text-body-small text-md-on-surface-variant/80",
-                        "提示: 输入回车可快速添加新密钥"
+                        "提示: 输入回车可快速添加新密钥，点击开关按钮可禁用/启用单个密钥"
                     )
                 );
         
@@ -1224,35 +1233,52 @@ Object.assign(ConfigView, {
         
                     const keys = providerData.api_keys;
                     if (!keys.length) {
-                        keys.push("");
+                        keys.push({ key: "", disabled: false });
                     }
         
                     let nonEmptyCount = 0;
+                    let disabledCount = 0;
         
-                    keys.forEach((value, index) => {
-                        if (value && value.trim()) nonEmptyCount += 1;
+                    keys.forEach((keyObj, index) => {
+                        // 兼容旧格式（字符串）
+                        if (typeof keyObj === "string") {
+                            keyObj = { key: keyObj, disabled: false };
+                            keys[index] = keyObj;
+                        }
+                        
+                        const keyValue = keyObj.key || "";
+                        const isDisabled = keyObj.disabled === true;
+                        
+                        if (keyValue.trim()) {
+                            nonEmptyCount += 1;
+                            if (isDisabled) disabledCount += 1;
+                        }
         
-                        const row = UI.el("div", "flex items-center gap-2 px-3 py-2");
+                        // 行容器 - 禁用的 key 显示为灰色背景
+                        const rowClasses = isDisabled
+                            ? "flex items-center gap-2 px-3 py-2 bg-md-surface-container/50 opacity-60"
+                            : "flex items-center gap-2 px-3 py-2";
+                        const row = UI.el("div", rowClasses);
         
                         // 序号
                         const indexLabel = UI.el(
                             "span",
-                            "w-6 text-right text-body-small text-md-on-surface-variant",
+                            "w-6 text-right text-body-small text-md-on-surface-variant flex-shrink-0",
                             String(index + 1)
                         );
         
-                        // 输入框
+                        // 输入框 - 禁用的 key 添加删除线样式
                         const input = document.createElement("input");
                         input.type = "text";
-                        input.className =
-                            "flex-1 px-2 py-1 bg-md-surface border border-transparent rounded-md-xs " +
-                            "text-body-small font-mono text-md-on-surface " +
-                            "focus:outline-none focus:border-md-primary focus:border-2";
-                        input.value = value || "";
+                        const inputClasses = isDisabled
+                            ? "flex-1 px-2 py-1 bg-md-surface border border-transparent rounded-md-xs text-body-small font-mono text-md-on-surface-variant line-through focus:outline-none focus:border-md-primary focus:border-2"
+                            : "flex-1 px-2 py-1 bg-md-surface border border-transparent rounded-md-xs text-body-small font-mono text-md-on-surface focus:outline-none focus:border-md-primary focus:border-2";
+                        input.className = inputClasses;
+                        input.value = keyValue;
                         input.setAttribute("data-key-index", String(index));
         
                         input.oninput = (e) => {
-                            providerData.api_keys[index] = e.target.value;
+                            providerData.api_keys[index].key = e.target.value;
                         };
         
                         // 回车快速添加/跳转
@@ -1261,7 +1287,7 @@ Object.assign(ConfigView, {
                                 e.preventDefault();
                                 const lastIndex = providerData.api_keys.length - 1;
                                 if (index === lastIndex) {
-                                    providerData.api_keys.push("");
+                                    providerData.api_keys.push({ key: "", disabled: false });
                                     renderKeyRows();
                                     setTimeout(() => {
                                         const inputs = listContainer.querySelectorAll('input[data-key-index]');
@@ -1294,22 +1320,35 @@ Object.assign(ConfigView, {
                             e.preventDefault();
 
                             // 当前行设为第一个 key
-                            providerData.api_keys[index] = lines[0];
+                            providerData.api_keys[index].key = lines[0];
 
                             // 其余 key 插入到当前行之后
                             const remaining = lines.slice(1);
                             // 去重：过滤掉已存在的 key
-                            const existingSet = new Set(providerData.api_keys.map(k => (k || "").trim()).filter(k => k));
+                            const existingSet = new Set(providerData.api_keys.map(k => (k.key || "").trim()).filter(k => k));
                             const newKeys = remaining.filter(k => !existingSet.has(k));
 
                             if (newKeys.length > 0) {
-                                // 在当前索引之后插入新 key
-                                providerData.api_keys.splice(index + 1, 0, ...newKeys);
+                                // 在当前索引之后插入新 key（新 key 默认启用）
+                                const newKeyObjs = newKeys.map(k => ({ key: k, disabled: false }));
+                                providerData.api_keys.splice(index + 1, 0, ...newKeyObjs);
                             }
 
                             renderKeyRows();
                             UI.snackbar(`已粘贴 ${1 + newKeys.length} 个密钥`, null, null, { variant: "success" });
                         };
+
+                        // 启用/禁用开关按钮
+                        const toggleBtn = UI.iconBtn(
+                            isDisabled ? "toggle_off" : "toggle_on",
+                            () => {
+                                providerData.api_keys[index].disabled = !isDisabled;
+                                renderKeyRows();
+                            },
+                            "standard",
+                            { tooltip: isDisabled ? "启用此密钥" : "禁用此密钥" }
+                        );
+                        toggleBtn.classList.add(isDisabled ? "text-md-on-surface-variant" : "text-md-success");
         
                         // 复制按钮
                         const copyBtn = UI.iconBtn(
@@ -1348,17 +1387,23 @@ Object.assign(ConfigView, {
         
                         row.appendChild(indexLabel);
                         row.appendChild(input);
+                        row.appendChild(toggleBtn);
                         row.appendChild(copyBtn);
                         row.appendChild(deleteBtn);
                         listContainer.appendChild(row);
                     });
         
-                    keysSummary.textContent = `总计: ${nonEmptyCount} 个密钥`;
+                    // 更新统计信息
+                    if (disabledCount > 0) {
+                        keysSummary.textContent = `总计: ${nonEmptyCount} 个密钥 (${disabledCount} 个已禁用)`;
+                    } else {
+                        keysSummary.textContent = `总计: ${nonEmptyCount} 个密钥`;
+                    }
                 };
         
                 // 按钮行为
                 addKeyBtn.onclick = () => {
-                    providerData.api_keys.push("");
+                    providerData.api_keys.push({ key: "", disabled: false });
                     renderKeyRows();
                     setTimeout(() => {
                         const inputs = listContainer.querySelectorAll('input[data-key-index]');
@@ -1369,7 +1414,7 @@ Object.assign(ConfigView, {
         
                 copyAllBtn.onclick = () => {
                     const nonEmptyKeys = providerData.api_keys
-                        .map((k) => (k || "").trim())
+                        .map((k) => (k.key || "").trim())
                         .filter((k) => k.length > 0);
                     if (!nonEmptyKeys.length) {
                         UI.snackbar("没有可复制的密钥", null, null, { variant: "error" });
@@ -2494,7 +2539,26 @@ Object.assign(ConfigView, {
         } else {
             delete target.model_prefix;
         }
-        target.api = !providerData.api_keys.length ? "" : providerData.api_keys.length === 1 ? providerData.api_keys[0] : providerData.api_keys.slice();
+        
+        // 处理 API keys：将对象格式转换为字符串格式，禁用的 key 加上 ! 前缀
+        const serializeApiKeys = () => {
+            const serialized = [];
+            for (const keyObj of providerData.api_keys) {
+                // 兼容旧格式（字符串）
+                if (typeof keyObj === "string") {
+                    if (keyObj.trim()) serialized.push(keyObj.trim());
+                } else {
+                    const keyValue = (keyObj.key || "").trim();
+                    if (keyValue) {
+                        // 禁用的 key 加上 ! 前缀
+                        serialized.push(keyObj.disabled ? `!${keyValue}` : keyValue);
+                    }
+                }
+            }
+            return serialized;
+        };
+        const serializedKeys = serializeApiKeys();
+        target.api = !serializedKeys.length ? "" : serializedKeys.length === 1 ? serializedKeys[0] : serializedKeys;
         
         const finalModels = [...providerData.models];
         providerData.modelMappings.forEach(m => {
