@@ -367,7 +367,16 @@ async def wait_for_timeout(wait_for_thing, timeout = 3, wait_task=None):
     else:
         return first_response_task, "timeout"
 
-async def error_handling_wrapper(generator, channel_id, engine, stream, error_triggers, keepalive_interval=None, last_message_role=None):
+async def error_handling_wrapper(
+    generator,
+    channel_id,
+    engine,
+    stream,
+    error_triggers,
+    keepalive_interval=None,
+    last_message_role=None,
+    done_message: Optional[str] = None,
+):
 
     async def new_generator(first_item=None, with_keepalive=False, wait_task=None, timeout=3):
         if first_item:
@@ -404,11 +413,58 @@ async def error_handling_wrapper(generator, channel_id, engine, stream, error_tr
                 # 客户端断开连接是正常行为，不需要记录错误日志
                 logger.debug(f"provider: {channel_id:<11} Stream cancelled by client")
                 return
-            except (httpx.ReadError, httpx.RemoteProtocolError, httpx.ReadTimeout, httpx.WriteError, httpx.ProtocolError, h2.exceptions.ProtocolError) as e:
+            except (
+                httpx.ReadError,
+                httpx.RemoteProtocolError,
+                httpx.ReadTimeout,
+                httpx.WriteError,
+                httpx.ProtocolError,
+                h2.exceptions.ProtocolError,
+            ) as e:
                 # 网络错误
                 logger.error(f"provider: {channel_id:<11} Network error in new_generator: {e}")
-                yield "data: [DONE]\n\n"
+                done = "data: [DONE]\n\n" if done_message is None else done_message
+                if done:
+                    yield done
                 return
+
+    def _extract_first_json_candidate(text: str) -> Optional[str]:
+        """
+        从首个 chunk 中提取可用于 json.loads 的字符串。
+
+        兼容：
+        - OpenAI/Gemini SSE: "data: {...}"
+        - Claude SSE: "event: ...\\ndata: {...}"
+        - 非 SSE: "{...}" / "[...]"
+        """
+        if not isinstance(text, str):
+            return None
+        stripped = text.strip()
+        if not stripped:
+            return None
+
+        for raw_line in stripped.splitlines():
+            line = raw_line.strip()
+            if not line:
+                continue
+            if line.startswith(":"):
+                continue
+            if line.startswith("event:"):
+                continue
+            if line.startswith("data:"):
+                payload = line[len("data:") :].strip()
+                if payload:
+                    return payload
+                continue
+            if line.startswith("{") or line.startswith("["):
+                return line
+
+        if stripped.startswith("data:"):
+            payload = stripped[len("data:") :].strip()
+            return payload or None
+        if stripped.startswith("{") or stripped.startswith("["):
+            return stripped
+        return None
 
     start_time = time_module.time()
     try:
@@ -438,24 +494,31 @@ async def error_handling_wrapper(generator, channel_id, engine, stream, error_tr
                 first_item_str = first_item_str.decode("utf-8")
         
         if isinstance(first_item_str, str) and not first_item_str.startswith(": keepalive"):
-            if first_item_str.startswith("data:"):
-                first_item_str = first_item_str.lstrip("data: ")
-            if first_item_str.startswith("[DONE]"):
+            json_candidate = _extract_first_json_candidate(first_item_str)
+            parse_target = (json_candidate if json_candidate is not None else first_item_str).strip()
+
+            if parse_target.startswith("[DONE]"):
                 logger.error(f"provider: {channel_id:<11} error_handling_wrapper [DONE]!")
                 raise StopAsyncIteration
             try:
-                encode_first_item_str = first_item_str.encode().decode('unicode-escape')
+                encode_first_item_str = parse_target.encode().decode("unicode-escape")
             except UnicodeDecodeError:
-                encode_first_item_str = first_item_str
-                logger.error(f"provider: {channel_id:<11} error UnicodeDecodeError: %s", first_item_str)
+                encode_first_item_str = parse_target
+                logger.error(f"provider: {channel_id:<11} error UnicodeDecodeError: %s", parse_target)
+
             if any(x in encode_first_item_str for x in error_triggers):
                 logger.error(f"provider: {channel_id:<11} error const string: %s", encode_first_item_str)
                 raise StopAsyncIteration
-            try:
-                first_item_str = await asyncio.to_thread(json.loads, first_item_str)
-            except json.JSONDecodeError:
-                logger.error(f"provider: {channel_id:<11} error_handling_wrapper JSONDecodeError! {repr(first_item_str)}")
-                raise StopAsyncIteration
+
+            # 仅当能提取到 JSON candidate 时才进行 json.loads，避免包含 event: 行的 SSE 首包导致误判
+            if json_candidate is not None:
+                try:
+                    first_item_str = await asyncio.to_thread(json.loads, json_candidate)
+                except json.JSONDecodeError:
+                    logger.error(
+                        f"provider: {channel_id:<11} error_handling_wrapper JSONDecodeError! {repr(json_candidate)}"
+                    )
+                    raise StopAsyncIteration
 
             # minimax
             status_code = safe_get(first_item_str, 'base_resp', 'status_code', default=200)
@@ -495,7 +558,7 @@ async def error_handling_wrapper(generator, channel_id, engine, stream, error_tr
         last_message_role != "assistant":
             raise StopAsyncIteration
 
-        if isinstance(first_item_str, dict) and engine not in ["tts", "embedding", "dalle", "moderation", "whisper"] and not stream:
+        if isinstance(first_item_str, dict) and engine not in ["tts", "embedding", "dalle", "moderation", "whisper"] and not stream and isinstance(first_item_str.get("choices"), list):
             if any(x in str(first_item_str) for x in error_triggers):
                 logger.error(f"provider: {channel_id:<11} error const string: %s", first_item_str)
                 raise StopAsyncIteration

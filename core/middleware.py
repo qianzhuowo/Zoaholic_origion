@@ -107,6 +107,31 @@ class StatsMiddleware:
             self.debug = bool(os.getenv("DEBUG", False))
         else:
             self.debug = debug
+        
+        # 缓存方言端点前缀列表
+        self._dialect_prefixes = self._get_dialect_prefixes()
+    
+    def _get_dialect_prefixes(self) -> list:
+        """获取所有方言端点前缀"""
+        prefixes = set()
+        try:
+            from core.dialects import list_dialects
+            for dialect in list_dialects():
+                for endpoint in dialect.endpoints:
+                    # 提取端点前缀（如 /v1beta）
+                    prefix = endpoint.prefix or ""
+                    if prefix:
+                        prefixes.add(prefix)
+        except Exception:
+            pass
+        return list(prefixes)
+    
+    def _is_dialect_endpoint(self, path: str) -> bool:
+        """检查路径是否是方言端点"""
+        for prefix in self._dialect_prefixes:
+            if path.startswith(prefix):
+                return True
+        return False
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         if scope["type"] != "http":
@@ -127,6 +152,10 @@ class StatsMiddleware:
             await self.app(scope, receive, send)
             return
 
+        # 方言端点使用自己的认证逻辑，跳过中间件认证但仍初始化 request_info
+        # 方言路由处理器会使用 DialectDefinition.extract_token 进行认证
+        is_dialect = self._is_dialect_endpoint(path)
+
         # 获取 app 实例
         app = scope.get("app")
         if not app:
@@ -136,60 +165,68 @@ class StatsMiddleware:
         start_time = time()
         headers = scope.get("headers", [])
 
-        # 读取 token
-        token = get_api_key_from_headers(headers)
-        if not token:
-            response = JSONResponse(
-                status_code=403, content={"error": "Invalid or missing API Key"}
-            )
-            await response(scope, receive, send)
-            return
-
+        # 方言端点跳过中间件认证，但仍需初始化基础上下文
+        token = None
+        api_index = None
         enable_moderation = False
         config = app.state.config
 
-        try:
-            api_list = app.state.api_list
-            api_index = api_list.index(token)
-        except ValueError:
-            api_index = None
-
-        if api_index is not None:
-            enable_moderation = safe_get(
-                config,
-                "api_keys",
-                api_index,
-                "preferences",
-                "ENABLE_MODERATION",
-                default=False,
-            )
-            if not DISABLE_DATABASE:
-                check_api_key = safe_get(config, "api_keys", api_index, "api")
-                # 余额检查
-                if (
-                    safe_get(
-                        app.state.paid_api_keys_states,
-                        check_api_key,
-                        "enabled",
-                        default=None,
-                    )
-                    is False
-                    and not path.startswith("/v1/token_usage")
-                ):
-                    response = JSONResponse(
-                        status_code=429,
-                        content={
-                            "error": "Balance is insufficient, please check your account."
-                        },
-                    )
-                    await response(scope, receive, send)
-                    return
+        if is_dialect:
+            # 方言端点：token/api_index 将由路由处理器填充
+            token = "dialect-pending"
+            api_index = 0
         else:
-            response = JSONResponse(
-                status_code=403, content={"error": "Invalid or missing API Key"}
-            )
-            await response(scope, receive, send)
-            return
+            # 标准端点：执行完整认证
+            token = get_api_key_from_headers(headers)
+            if not token:
+                response = JSONResponse(
+                    status_code=403, content={"error": "Invalid or missing API Key"}
+                )
+                await response(scope, receive, send)
+                return
+
+            try:
+                api_list = app.state.api_list
+                api_index = api_list.index(token)
+            except ValueError:
+                api_index = None
+
+            if api_index is not None:
+                enable_moderation = safe_get(
+                    config,
+                    "api_keys",
+                    api_index,
+                    "preferences",
+                    "ENABLE_MODERATION",
+                    default=False,
+                )
+                if not DISABLE_DATABASE:
+                    check_api_key = safe_get(config, "api_keys", api_index, "api")
+                    # 余额检查
+                    if (
+                        safe_get(
+                            app.state.paid_api_keys_states,
+                            check_api_key,
+                            "enabled",
+                            default=None,
+                        )
+                        is False
+                        and not path.startswith("/v1/token_usage")
+                    ):
+                        response = JSONResponse(
+                            status_code=429,
+                            content={
+                                "error": "Balance is insufficient, please check your account."
+                            },
+                        )
+                        await response(scope, receive, send)
+                        return
+            else:
+                response = JSONResponse(
+                    status_code=403, content={"error": "Invalid or missing API Key"}
+                )
+                await response(scope, receive, send)
+                return
 
         # 获取 client IP
         client = scope.get("client")

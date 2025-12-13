@@ -21,7 +21,7 @@ from starlette.responses import Response
 from core.log_config import logger
 from core.streaming import LoggingStreamingResponse
 from core.request import get_payload
-from core.response import fetch_response, fetch_response_stream
+from core.response import fetch_response, fetch_response_stream, check_response
 from core.stats import update_stats
 from core.models import (
     RequestModel,
@@ -272,11 +272,223 @@ async def process_request(
             httpx.RemoteProtocolError, httpx.LocalProtocolError, httpx.ReadTimeout,
             httpx.ConnectError) as e:
         background_tasks.add_task(
-            update_channel_stats_func, 
-            current_info["request_id"], channel_id, request.model, 
+            update_channel_stats_func,
+            current_info["request_id"], channel_id, request.model,
             current_info["api_key"], success=False, provider_api_key=api_key
         )
         raise e
+
+
+def _filter_passthrough_headers(original_headers: Optional[Dict[str, str]]) -> Dict[str, Any]:
+    """过滤入口请求头中的认证字段，避免把用户 token 透传到上游"""
+    drop_names = {"authorization", "x-api-key", "api-key", "x-goog-api-key"}
+    return {
+        k: v
+        for k, v in (original_headers or {}).items()
+        if k.lower() not in drop_names and k.lower() != "content-length"
+    }
+
+
+async def process_request_passthrough(
+    request: RequestModel,
+    provider: Dict[str, Any],
+    background_tasks: BackgroundTasks,
+    app: "FastAPI",
+    request_info_getter: Callable[[], Dict[str, Any]],
+    update_channel_stats_func: Callable,
+    passthrough_ctx: Any,
+    endpoint: Optional[str] = None,
+    role: Optional[str] = None,
+    timeout_value: int = DEFAULT_TIMEOUT,
+    keepalive_interval: Optional[int] = None,
+) -> Response:
+    """
+    透传模式请求处理：
+    - 复用 channel.request_adapter 生成 url/headers
+    - payload 取入口原生请求 + 轻量修改
+    - 不跑上游响应的 Canonical 转换
+    """
+    from core.dialects.passthrough import apply_passthrough_modifications
+    from core.plugins.interceptors import apply_request_interceptors
+    from core.channels import get_channel
+
+    timeout_value = int(timeout_value)
+    model_dict = provider["_model_dict_cache"]
+    original_model = model_dict[request.model]
+
+    if provider["provider"].startswith("sk-"):
+        api_key = provider["provider"]
+    elif provider.get("api"):
+        api_key = await provider_api_circular_list[provider["provider"]].next(original_model)
+    else:
+        api_key = None
+
+    engine, stream_mode = get_engine(provider, endpoint, original_model)
+    if stream_mode is not None:
+        request.stream = stream_mode
+
+    channel = get_channel(engine)
+    adapter = (channel.passthrough_adapter if channel else None) or (channel.request_adapter if channel else None)
+    if not adapter:
+        raise ValueError(f"Unknown engine: {engine}")
+
+    url, adapter_headers, _ = await adapter(request, engine, provider, api_key)
+
+    headers: Dict[str, Any] = dict(adapter_headers or {})
+    headers.update(_filter_passthrough_headers(passthrough_ctx.original_headers))
+    headers.update(safe_get(provider, "preferences", "headers", default={}))
+    headers.setdefault("Content-Type", "application/json")
+
+    payload = apply_passthrough_modifications(
+        passthrough_ctx.original_payload,
+        passthrough_ctx.modifications,
+        passthrough_ctx.dialect_id,
+        request_model=request.model,
+        original_model=original_model,
+    )
+
+    enabled_plugins = safe_get(provider, "preferences", "enabled_plugins", default=None)
+    url, headers, payload = await apply_request_interceptors(
+        request, engine, provider, api_key, url, headers, payload, enabled_plugins
+    )
+
+    if is_debug:
+        logger.info(url)
+        logger.info(json.dumps(headers, indent=4, ensure_ascii=False))
+        logger.info(json.dumps({k: v for k, v in payload.items() if k != "file"}, indent=4, ensure_ascii=False))
+
+    current_info = request_info_getter()
+    channel_id = f"{provider['provider']}"
+
+    if current_info.get("raw_data_expires_at"):
+        safe_upstream_headers = {
+            k: v for k, v in headers.items()
+            if k.lower() not in ("authorization", "x-api-key", "api-key", "x-goog-api-key")
+        }
+        current_info["upstream_request_headers"] = json.dumps(safe_upstream_headers, ensure_ascii=False)
+        upstream_payload = {k: v for k, v in payload.items() if k != "file"}
+        current_info["upstream_request_body"] = truncate_for_logging(upstream_payload)
+
+    if getattr(request, "model", None):
+        current_info["model"] = request.model
+
+    current_info["provider_id"] = channel_id
+
+    proxy = safe_get(app.state.config, "preferences", "proxy", default=None)
+    proxy = safe_get(provider, "preferences", "proxy", default=proxy)
+
+    start_ts = time()
+
+    try:
+        async with app.state.client_manager.get_client(url, proxy) as client:
+            last_message_role = safe_get(request, "messages", -1, "role", default=None)
+
+            if request.stream:
+                generator = fetch_response_stream(
+                    client,
+                    url,
+                    headers,
+                    payload,
+                    engine,
+                    original_model,
+                    timeout_value,
+                    enabled_plugins=enabled_plugins,
+                )
+                wrapped_generator, first_response_time = await error_handling_wrapper(
+                    generator,
+                    channel_id,
+                    engine,
+                    request.stream,
+                    app.state.error_triggers,
+                    keepalive_interval=keepalive_interval,
+                    last_message_role=last_message_role,
+                )
+                response = LoggingStreamingResponse(
+                    wrapped_generator,
+                    media_type="text/event-stream",
+                    current_info=current_info,
+                    app=app,
+                    debug=is_debug,
+                )
+            else:
+                generator = fetch_response(
+                    client,
+                    url,
+                    headers,
+                    payload,
+                    engine,
+                    original_model,
+                    timeout_value,
+                )
+                wrapped_generator, first_response_time = await error_handling_wrapper(
+                    generator,
+                    channel_id,
+                    engine,
+                    request.stream,
+                    app.state.error_triggers,
+                    last_message_role=last_message_role,
+                )
+
+                # 处理音频和其他二进制响应
+                if endpoint == "/v1/audio/speech":
+                    if isinstance(wrapped_generator, bytes):
+                        response = Response(content=wrapped_generator, media_type="audio/mpeg")
+                    else:
+                        first_element = await anext(wrapped_generator)
+                        first_element = first_element.lstrip("data: ")
+                        decoded_element = await asyncio.to_thread(json.loads, first_element)
+                        encoded_element = await asyncio.to_thread(json.dumps, decoded_element)
+
+                        async def non_stream_iter():
+                            yield encoded_element
+
+                        response = LoggingStreamingResponse(
+                            non_stream_iter(),
+                            media_type="application/json",
+                            current_info=current_info,
+                            app=app,
+                            debug=is_debug,
+                        )
+                else:
+                    first_element = await anext(wrapped_generator)
+                    first_element = first_element.lstrip("data: ")
+                    decoded_element = await asyncio.to_thread(json.loads, first_element)
+                    encoded_element = await asyncio.to_thread(json.dumps, decoded_element)
+
+                    async def non_stream_iter():
+                        yield encoded_element
+
+                    response = LoggingStreamingResponse(
+                        non_stream_iter(),
+                        media_type="application/json",
+                        current_info=current_info,
+                        app=app,
+                        debug=is_debug,
+                    )
+
+            current_info["first_response_time"] = first_response_time
+    except (Exception, HTTPException, asyncio.CancelledError, httpx.ReadError,
+            httpx.RemoteProtocolError, httpx.LocalProtocolError, httpx.ReadTimeout,
+            httpx.ConnectError) as e:
+        background_tasks.add_task(
+            update_channel_stats_func,
+            current_info["request_id"], channel_id, request.model,
+            current_info["api_key"], success=False, provider_api_key=api_key
+        )
+        raise e
+
+    response.headers["x-zoaholic-passthrough"] = "request"
+
+    background_tasks.add_task(
+        update_channel_stats_func,
+        current_info["request_id"], channel_id, request.model,
+        current_info["api_key"], success=True, provider_api_key=api_key
+    )
+    current_info["success"] = True
+    current_info["status_code"] = 200
+    current_info["provider"] = channel_id
+
+    return response
 
 
 class ModelRequestHandler:
@@ -314,7 +526,10 @@ class ModelRequestHandler:
         request_data: Union[RequestModel, ImageGenerationRequest, AudioTranscriptionRequest, ModerationRequest, EmbeddingRequest],
         api_index: int,
         background_tasks: BackgroundTasks,
-        endpoint: Optional[str] = None
+        endpoint: Optional[str] = None,
+        dialect_id: Optional[str] = None,
+        original_payload: Optional[Dict[str, Any]] = None,
+        original_headers: Optional[Dict[str, str]] = None,
     ) -> Response:
         """
         处理模型请求
@@ -324,6 +539,9 @@ class ModelRequestHandler:
             api_index: API key 索引
             background_tasks: 后台任务
             endpoint: 请求端点
+            dialect_id: 入口方言 ID（原生路由传入）
+            original_payload: 原始 native 请求体（透传用）
+            original_headers: 原始请求头（透传用）
             
         Returns:
             响应对象
@@ -454,11 +672,32 @@ class ModelRequestHandler:
                 keepalive_interval = None
 
             try:
-                response = await process_request(
+                passthrough_ctx = None
+                if dialect_id and original_payload is not None and isinstance(request_data, RequestModel):
+                    from core.dialects.passthrough import evaluate_passthrough
+                    passthrough_ctx = await evaluate_passthrough(
+                        dialect_id=dialect_id,
+                        original_payload=original_payload,
+                        original_headers=original_headers or {},
+                        target_provider=provider,
+                        request_model=request_model_name,
+                    )
+
+                process_fn = process_request_passthrough if (passthrough_ctx and passthrough_ctx.enabled) else process_request
+                response = await process_fn(
+                    request_data, provider, background_tasks, self.app,
+                    self.request_info_getter, self.update_channel_stats_func,
+                    passthrough_ctx=passthrough_ctx,
+                    endpoint=endpoint,
+                    role=role,
+                    timeout_value=local_timeout_value,
+                    keepalive_interval=keepalive_interval,
+                ) if process_fn is process_request_passthrough else await process_request(
                     request_data, provider, background_tasks, self.app,
                     self.request_info_getter, self.update_channel_stats_func,
                     endpoint, role, local_timeout_value, keepalive_interval
                 )
+
                 # 成功时记录重试路径和重试次数
                 current_info = self.request_info_getter()
                 if retry_path:

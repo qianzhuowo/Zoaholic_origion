@@ -9,7 +9,6 @@ from fastapi import APIRouter
 api_router = APIRouter()
 
 # 导入并注册子路由
-from routes.chat import router as chat_router
 from routes.models import router as models_router
 from routes.images import router as images_router
 from routes.audio import router as audio_router
@@ -20,8 +19,10 @@ from routes.admin import router as admin_router
 from routes.stats import router as stats_router
 from routes.plugins import router as plugins_router
 
+# 导入方言路由（自动注册所有方言端点）
+from core.dialects import dialect_router
+
 # 注册所有子路由
-api_router.include_router(chat_router, tags=["Chat"])
 api_router.include_router(models_router, tags=["Models"])
 api_router.include_router(images_router, tags=["Images"])
 api_router.include_router(audio_router, tags=["Audio"])
@@ -31,5 +32,8 @@ api_router.include_router(channels_router, tags=["Channels"])
 api_router.include_router(admin_router, tags=["Admin"])
 api_router.include_router(stats_router, tags=["Stats"])
 api_router.include_router(plugins_router, tags=["Plugins"])
+
+# 注册方言路由（OpenAI / Gemini / Claude 等格式端点）
+api_router.include_router(dialect_router)
 
 __all__ = ["api_router"]

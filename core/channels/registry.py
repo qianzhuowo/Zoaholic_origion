@@ -53,6 +53,8 @@ class ChannelDefinition:
     auth_header: Optional[str] = None
     description: Optional[str] = None
     request_adapter: Optional[RequestAdapter] = None
+    # 透传时构建 url/headers 的适配器（默认复用 request_adapter）
+    passthrough_adapter: Optional[RequestAdapter] = None
     stream_adapter: Optional[StreamAdapter] = None
     response_adapter: Optional[ResponseAdapter] = None
     models_adapter: Optional[ModelsAdapter] = None
@@ -65,6 +67,7 @@ class ChannelDefinition:
             "default_base_url": self.default_base_url,
             "auth_header": self.auth_header,
             "description": self.description,
+            "has_passthrough_adapter": self.passthrough_adapter is not None,
             "has_models_adapter": self.models_adapter is not None,
         }
 
@@ -84,6 +87,8 @@ def register_channel(
     response_adapter: Optional[ResponseAdapter] = None,
     models_adapter: Optional[ModelsAdapter] = None,
     overwrite: bool = False,
+    *,
+    passthrough_adapter: Optional[RequestAdapter] = None,
 ) -> None:
     """
     注册一个渠道, 供 core.request / core.response 统一调度使用。
@@ -110,6 +115,7 @@ def register_channel(
         auth_header=auth_header,
         description=description,
         request_adapter=request_adapter,
+        passthrough_adapter=passthrough_adapter,
         stream_adapter=stream_adapter,
         response_adapter=response_adapter,
         models_adapter=models_adapter,

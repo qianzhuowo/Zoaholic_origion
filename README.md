@@ -58,12 +58,16 @@ Zoaholic 是一个基于 [uni-api](https://github.com/yym68686/uni-api) 二次�
 
 ### API 端点
 
-- `/v1/chat/completions` - 聊天补全
+- `/v1/chat/completions` - 聊天补全（OpenAI 兼容）
 - `/v1/images/generations` - 图像生成
 - `/v1/audio/transcriptions` - 音频转录
 - `/v1/embeddings` - 文本嵌入
 - `/v1/moderations` - 内容审核
 - `/v1/models` - 模型列表
+- `/v1beta/models` - Gemini 原生格式模型列表
+- `/v1beta/models/{model}:generateContent` - Gemini 原生格式（非流式）
+- `/v1beta/models/{model}:streamGenerateContent` - Gemini 原生格式（流式）
+- `/v1/messages` - Claude 原生格式
 
 ## 🚀 快速开始
 

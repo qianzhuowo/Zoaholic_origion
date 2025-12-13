@@ -42,6 +42,23 @@ async def format_image_message(image_url: str) -> dict:
     }
 
 
+async def get_openai_passthrough_meta(request, engine, provider, api_key=None):
+    """透传用：仅构建 url/headers，payload 由入口原生请求提供"""
+    headers = {
+        'Content-Type': 'application/json',
+    }
+    if api_key:
+        headers['Authorization'] = f"Bearer {api_key}"
+
+    base_api = BaseAPI(provider.get('base_url'))
+    url = base_api.chat_url
+    if "openrouter.ai" in url:
+        headers['HTTP-Referer'] = "https://github.com/HCPTangHY/Zoaholic"
+        headers['X-Title'] = "Zoaholic"
+
+    return url, headers, {}
+
+
 async def get_gpt_payload(request, engine, provider, api_key=None):
     """构建 OpenAI 兼容 API 的请求 payload"""
     headers = {
@@ -409,6 +426,7 @@ def register():
         auth_header="Authorization: Bearer {api_key}",
         description="OpenAI 兼容 API",
         request_adapter=get_gpt_payload,
+        passthrough_adapter=get_openai_passthrough_meta,
         stream_adapter=fetch_gpt_response_stream,
         models_adapter=fetch_openai_models,
     )
