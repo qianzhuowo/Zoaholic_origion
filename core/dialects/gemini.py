@@ -112,9 +112,53 @@ async def parse_gemini_request(
 
         content_items: List[ContentItem] = []
         text_acc: List[str] = []
+        reasoning_acc: List[str] = []
+        tool_calls: List[Dict[str, Any]] = []
+        msg_thought_signature: Optional[str] = None
+
         for part in parts:
             if not isinstance(part, dict):
                 continue
+            
+            # 提取签名 (优先使用原生驼峰)
+            part_signature = part.get("thoughtSignature") or part.get("thought_signature")
+            if part_signature:
+                msg_thought_signature = part_signature
+
+            # 1. 处理思维链
+            if part.get("thought") is True and "text" in part:
+                reasoning_acc.append(str(part.get("text", "")))
+                continue
+
+            # 2. 处理函数调用 (Gemini native -> Canonical tool_calls)
+            if "functionCall" in part:
+                fc = part["functionCall"]
+                tc_id = f"call_{len(tool_calls)}"
+                tc = {
+                    "id": tc_id,
+                    "type": "function",
+                    "function": {
+                        "name": fc.get("name"),
+                        "arguments": json.dumps(fc.get("args") or {}, ensure_ascii=False)
+                    }
+                }
+                if part_signature:
+                    tc["extra_content"] = {"google": {"thoughtSignature": part_signature}}
+                tool_calls.append(tc)
+                continue
+
+            # 3. 处理函数返回 (Gemini native -> Canonical tool role)
+            if "functionResponse" in part:
+                fr = part["functionResponse"]
+                messages.append(Message(
+                    role="tool",
+                    name=fr.get("name"),
+                    content=json.dumps(fr.get("response") or {}, ensure_ascii=False),
+                    tool_call_id=fr.get("name") # Gemini 通常用 name 匹配
+                ))
+                continue
+
+            # 4. 处理普通文本和图片
             if "text" in part:
                 text = str(part.get("text", ""))
                 text_acc.append(text)
@@ -130,13 +174,22 @@ async def parse_gemini_request(
                     )
                 )
 
-        if not content_items:
+        if not content_items and not reasoning_acc and not tool_calls:
             continue
 
+        # 封装消息
+        msg_kwargs = {}
+        if reasoning_acc:
+            msg_kwargs["reasoning_content"] = "".join(reasoning_acc)
+        if tool_calls:
+            msg_kwargs["tool_calls"] = tool_calls
+        if msg_thought_signature:
+            msg_kwargs["thoughtSignature"] = msg_thought_signature
+
         if len(content_items) == 1 and content_items[0].type == "text":
-            messages.append(Message(role=role, content="".join(text_acc)))
+            messages.append(Message(role=role, content="".join(text_acc), **msg_kwargs))
         else:
-            messages.append(Message(role=role, content=content_items))
+            messages.append(Message(role=role, content=content_items if content_items else None, **msg_kwargs))
 
     model = path_params.get("model") or native_body.get("model") or ""
     action = path_params.get("action") or ""
@@ -183,24 +236,61 @@ async def render_gemini_response(
     Canonical(OpenAI 风格) -> Gemini native response
     """
     choices = canonical_response.get("choices") or []
-    content_text = ""
+    parts = []
     if choices:
         msg = choices[0].get("message") or {}
+        
+        # 1. 思维链 (Reasoning)
+        reasoning = msg.get("reasoning_content")
+        if reasoning:
+            parts.append({"thought": True, "text": reasoning})
+
+        # 2. 文本内容 (Content)
         content_text = msg.get("content") or ""
         if isinstance(content_text, list):
             content_text = "".join(
                 str(i.get("text", "")) for i in content_text if isinstance(i, dict)
             )
+        if content_text:
+            parts.append({"text": content_text})
+
+        # 3. 工具调用 (Tool Calls)
+        # 如果存在 tool_calls，Gemini 期望渲染为 functionCall parts
+        tool_calls = msg.get("tool_calls") or []
+        for i, tc in enumerate(tool_calls):
+            fn = tc.get("function") or {}
+            try:
+                args = json.loads(fn.get("arguments") or "{}")
+            except:
+                args = {}
+            
+            part = {
+                "functionCall": {
+                    "name": fn.get("name"),
+                    "args": args
+                }
+            }
+            # 签名逻辑：第一个函数调用必须携带签名（如果是 Gemini 3 模型）
+            # 我们优先从 tool_call 的 extra_content 中找，或者使用消息级别的签名
+            sig = (tc.get("extra_content") or {}).get("google", {}).get("thoughtSignature")
+            if not sig and i == 0:
+                sig = msg.get("thoughtSignature")
+            
+            if sig:
+                part["thoughtSignature"] = sig
+            
+            parts.append(part)
+
+        # 4.兜底签名逻辑：如果没有工具调用，将签名附在最后一个文本块上
+        if not tool_calls and msg.get("thoughtSignature") and parts:
+            parts[-1]["thoughtSignature"] = msg.get("thoughtSignature")
 
     usage = canonical_response.get("usage") or {}
 
     return {
         "candidates": [
             {
-                "content": {
-                    "role": "model",
-                    "parts": [{"text": content_text}],
-                },
+                "content": {"role": "model", "parts": parts or [{"text": ""}]},
                 "finishReason": "STOP",
             }
         ],
@@ -241,6 +331,7 @@ async def render_gemini_stream(canonical_sse_chunk: str) -> str:
     delta = choices[0].get("delta") or {}
     content = delta.get("content") or ""
     reasoning = delta.get("reasoning_content") or ""
+    thought_signature = delta.get("thoughtSignature")
 
     gemini_chunk: Dict[str, Any] = {
         "candidates": [
@@ -259,6 +350,9 @@ async def render_gemini_stream(canonical_sse_chunk: str) -> str:
         )
     if content:
         gemini_chunk["candidates"][0]["content"]["parts"].append({"text": content})
+
+    if thought_signature and gemini_chunk["candidates"][0]["content"]["parts"]:
+        gemini_chunk["candidates"][0]["content"]["parts"][-1]["thoughtSignature"] = thought_signature
 
     finish_reason = choices[0].get("finish_reason")
     if finish_reason:

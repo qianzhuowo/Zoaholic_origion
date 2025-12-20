@@ -29,10 +29,14 @@ class FunctionCall(BaseModel):
     name: str
     arguments: str
 
+    model_config = ConfigDict(extra='allow')
+
 class ToolCall(BaseModel):
     id: str
     type: str
     function: FunctionCall
+
+    model_config = ConfigDict(extra='allow')
 
 class ImageUrl(BaseModel):
     url: str

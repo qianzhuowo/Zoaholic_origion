@@ -27,13 +27,13 @@ class PassthroughContext:
     modifications: Dict[str, Any]
 
 
-def detect_passthrough(dialect_id: str, target_engine: str) -> bool:
+def detect_passthrough(dialect_id: str, target_engine_id: str) -> bool:
     """
     检测是否可透传（宽松模式）
 
-    唯一条件：入口方言与目标 engine 匹配。
-    透传匹配优先使用方言注册中声明的目标上游类型；
-    若未声明则回退为 dialect_id == engine。
+    逻辑：
+    1. 检查 dialect.target_engine 是否包含 target_engine_id (渠道 ID)
+    2. 检查 dialect.target_engine 是否包含该渠道的 type_name (技术类型)
     """
     dialect = None
     try:
@@ -42,13 +42,23 @@ def detect_passthrough(dialect_id: str, target_engine: str) -> bool:
     except Exception:
         dialect = None
 
-    expected_engine = getattr(dialect, "target_engine", None) if dialect else None
-    if expected_engine:
-        if isinstance(expected_engine, (list, tuple, set)):
-            return target_engine in expected_engine
-        return expected_engine == target_engine
+    if not dialect:
+        return dialect_id == target_engine_id
 
-    return dialect_id == target_engine
+    # 获取渠道定义以提取其 type_name
+    try:
+        from core.channels import get_channel
+        channel = get_channel(target_engine_id)
+        target_type = channel.type_name if channel else target_engine_id
+    except Exception:
+        target_type = target_engine_id
+
+    expected_engines = getattr(dialect, "target_engine", None) or [dialect_id]
+    if not isinstance(expected_engines, (list, tuple, set)):
+        expected_engines = [expected_engines]
+
+    # 只要渠道 ID 或 渠道类型 命中方言的目标引擎列表，即可透传
+    return target_engine_id in expected_engines or target_type in expected_engines
 
 
 async def evaluate_passthrough(

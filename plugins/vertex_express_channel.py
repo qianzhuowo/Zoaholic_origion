@@ -195,59 +195,78 @@ async def get_vertex_express_payload(request, engine, provider, api_key=None):
     for msg in request_messages:
         if msg.role == "assistant":
             msg.role = "model"
-        tool_calls = None
-        content = []
         
+        parts = []
+        # 提取该消息可能携带的签名
+        msg_signature = getattr(msg, "thoughtSignature", None)
+
+        # 1. 处理思维链
+        reasoning = getattr(msg, "reasoning_content", None)
+        if reasoning:
+            parts.append({"thought": True, "text": reasoning})
+
+        # 2. 处理内容 (文本/图片)
         if isinstance(msg.content, list):
             for item in msg.content:
                 if item.type == "text":
-                    text_message = format_text_message(item.text)
-                    content.append(text_message)
+                    parts.append(format_text_message(item.text))
                 elif item.type == "image_url" and provider.get("image", True):
-                    image_message = await format_image_message(item.image_url.url)
-                    content.append(image_message)
+                    parts.append(await format_image_message(item.image_url.url))
         elif msg.content:
-            content = [{"text": msg.content}]
-        elif msg.content is None:
-            tool_calls = msg.tool_calls
+            parts.append({"text": msg.content})
 
-        if tool_calls:
-            tool_call = tool_calls[0]
-            function_arguments = {
-                "functionCall": {
-                    "name": tool_call.function.name,
-                    "args": json.loads(tool_call.function.arguments)
+        # 3. 处理工具调用 (Model 角色下)
+        if msg.role == "model" and msg.tool_calls:
+            for i, tc in enumerate(msg.tool_calls):
+                # 转换 arguments
+                try:
+                    args = json.loads(tc.function.arguments) if isinstance(tc.function.arguments, str) else tc.function.arguments
+                except:
+                    args = {}
+                
+                part = {
+                    "functionCall": {
+                        "name": tc.function.name,
+                        "args": args
+                    }
                 }
-            }
-            messages.append({
-                "role": "model",
-                "parts": [function_arguments]
-            })
-        elif msg.role == "tool":
-            function_call_name = function_arguments["functionCall"]["name"]
+                # 签名逻辑：第一个 FC 必须携带签名
+                sig = (getattr(tc, "extra_content", {}) or {}).get("google", {}).get("thoughtSignature")
+                if not sig and i == 0:
+                    sig = msg_signature
+                
+                if sig:
+                    part["thoughtSignature"] = sig
+                    msg_signature = None # 已消耗
+                
+                parts.append(part)
+
+        # 4. 如果没有工具调用但有签名，附在最后一个文本块
+        if msg_signature and parts:
+            parts[-1]["thoughtSignature"] = msg_signature
+
+        # 5. 处理函数响应 (Tool 角色下)
+        if msg.role == "tool":
             messages.append({
                 "role": "function",
                 "parts": [{
                     "functionResponse": {
-                        "name": function_call_name,
-                        "response": {
-                            "name": function_call_name,
-                            "content": {
-                                "result": msg.content,
-                            }
-                        }
+                        "name": msg.name or msg.tool_call_id,
+                        "response": {"result": msg.content}
                     }
                 }]
             })
-        elif msg.role != "system" and content:
+        elif msg.role != "system" and parts:
             # 确保 role 字段存在
             if not hasattr(msg, 'role') or not msg.role:
-                messages.append({"role": "user", "parts": content})
+                messages.append({"role": "user", "parts": parts})
             else:
-                messages.append({"role": msg.role, "parts": content})
+                messages.append({"role": msg.role, "parts": parts})
         elif msg.role == "system":
-            content[0]["text"] = re.sub(r"_+", "_", content[0]["text"])
-            system_prompt = system_prompt + "\n\n" + content[0]["text"]
+            # 系统提示词处理逻辑
+            sys_text = "".join([p.get("text", "") for p in parts if "text" in p])
+            sys_text = re.sub(r"_+", "_", sys_text)
+            system_prompt = system_prompt + "\n\n" + sys_text
 
     if system_prompt.strip():
         systemInstruction = {"parts": [{"text": system_prompt}]}
@@ -455,6 +474,7 @@ async def fetch_vertex_express_response(client, url, headers, payload, model, ti
     处理 Vertex Express 非流式响应
     """
     from core.utils import generate_no_stream_response, safe_get
+    from core.channels.gemini_channel import gemini_json_process
     
     timestamp = int(datetime.timestamp(datetime.now()))
     
@@ -466,6 +486,7 @@ async def fetch_vertex_express_response(client, url, headers, payload, model, ti
     response = await client.post(url, headers=headers, content=json_payload, timeout=timeout)
     
     if response.status_code != 200:
+        # ... 保持错误处理逻辑 ...
         error_data = {
             "error": {
                 "message": f"Vertex Express API error: {response.status_code}",
@@ -479,40 +500,30 @@ async def fetch_vertex_express_response(client, url, headers, payload, model, ti
     
     try:
         response_json = response.json()
+        is_thinking, reasoning_content, content, image_base64, function_call_name, function_full_response, finishReason, blockReason, promptTokenCount, candidatesTokenCount, totalTokenCount, thought_signature = await gemini_json_process(response_json)
         
-        # 过滤空 parts
-        if response_json.get("candidates"):
-            for candidate in response_json["candidates"]:
-                if candidate.get("content", {}).get("parts"):
-                    candidate["content"]["parts"] = [
-                        part for part in candidate["content"]["parts"] if part
-                    ]
-        
-        # 提取内容
-        content = safe_get(response_json, "candidates", 0, "content", "parts", 0, "text", default="")
-        prompt_tokens = safe_get(response_json, "usageMetadata", "promptTokenCount", default=0)
-        completion_tokens = safe_get(response_json, "usageMetadata", "candidatesTokenCount", default=0)
-        total_tokens = safe_get(response_json, "usageMetadata", "totalTokenCount", default=0)
-        
-        # 检查是否有图片响应
-        image_base64 = safe_get(response_json, "candidates", 0, "content", "parts", 0, "inlineData", "data", default=None)
-        
+        if blockReason and blockReason != "STOP":
+            yield {"error": f"Vertex Blocked: {blockReason}", "status_code": 400, "details": response_json}
+            return
+
         result = await generate_no_stream_response(
             timestamp, model, 
             content=content, 
-            tools_id=None, 
-            function_call_name=None, 
-            function_call_content=None, 
-            role=None,
-            total_tokens=total_tokens, 
-            prompt_tokens=prompt_tokens, 
-            completion_tokens=completion_tokens,
-            image_base64=image_base64
+            tools_id="chatcmpl-vertex" if function_call_name else None, 
+            function_call_name=function_call_name, 
+            function_call_content=function_full_response, 
+            role="assistant",
+            total_tokens=totalTokenCount, 
+            prompt_tokens=promptTokenCount, 
+            completion_tokens=candidatesTokenCount,
+            reasoning_content=reasoning_content,
+            image_base64=image_base64,
+            thought_signature=thought_signature
         )
         yield result
         
-    except json.JSONDecodeError:
-        yield f"data: {json.dumps({'error': 'Invalid JSON response'})}\n\n"
+    except Exception as e:
+        yield f"data: {json.dumps({'error': str(e)})}\n\n"
 
 
 # ==================== 渠道定义 ====================
@@ -536,8 +547,6 @@ class VertexExpressChannelAdapter:
 def setup(manager: "PluginManager"):
     """
     插件初始化
-    
-    当插件被加载时调用。在这里注册扩展到插件系统。
     """
     # 注册到插件系统
     manager.register_extension(
@@ -557,15 +566,15 @@ def setup(manager: "PluginManager"):
     
     try:
         register_channel(
-            id=VertexExpressChannelAdapter.id,
-            type_name=VertexExpressChannelAdapter.type_name,
+            id=VertexExpressChannelAdapter.id, # "vertex-express"
+            type_name="gemini", # <--- 声明为 gemini 类型，自动命中方言透传
             default_base_url="https://aiplatform.googleapis.com",
-            auth_header=None,  # Express Key 通过 URL 参数传递
+            auth_header=None,
             description="Google Vertex AI (Express Key)",
             request_adapter=VertexExpressChannelAdapter.request_adapter,
             stream_adapter=VertexExpressChannelAdapter.stream_adapter,
             response_adapter=VertexExpressChannelAdapter.response_adapter,
-            models_adapter=None,  # Express Key 不支持获取模型列表
+            models_adapter=None,
         )
         print(f"[{PLUGIN_INFO['name']}] Channel 'vertex-express' registered successfully!")
     except ValueError as e:

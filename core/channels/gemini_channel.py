@@ -89,58 +89,75 @@ async def get_gemini_payload(request, engine, provider, api_key=None):
     for msg in request_messages:
         if msg.role == "assistant":
             msg.role = "model"
-        tool_calls = None
+        
+        parts = []
+        # 提取该消息可能携带的签名
+        msg_signature = getattr(msg, "thoughtSignature", None)
+
+        # 1. 处理思维链
+        reasoning = getattr(msg, "reasoning_content", None)
+        if reasoning:
+            parts.append({"thought": True, "text": reasoning})
+
+        # 2. 处理内容 (文本/图片)
         if isinstance(msg.content, list):
-            content = []
             for item in msg.content:
                 if item.type == "text":
-                    text_message = format_text_message(item.text)
-                    content.append(text_message)
+                    parts.append(format_text_message(item.text))
                 elif item.type == "image_url" and provider.get("image", True):
-                    image_message = await format_image_message(item.image_url.url)
-                    content.append(image_message)
+                    parts.append(await format_image_message(item.image_url.url))
         elif msg.content:
-            content = [{"text": msg.content}]
-        elif msg.content is None:
-            tool_calls = msg.tool_calls
+            parts.append({"text": msg.content})
 
-        if tool_calls:
-            tool_call = tool_calls[0]
-            function_arguments = {
-                "functionCall": {
-                    "name": tool_call.function.name,
-                    "args": json.loads(tool_call.function.arguments)
-                }
-            }
-            messages.append(
-                {
-                    "role": "model",
-                    "parts": [function_arguments]
-                }
-            )
-        elif msg.role == "tool":
-            function_call_name = function_arguments["functionCall"]["name"]
-            messages.append(
-                {
-                    "role": "function",
-                    "parts": [{
-                    "functionResponse": {
-                        "name": function_call_name,
-                        "response": {
-                            "name": function_call_name,
-                            "content": {
-                                "result": msg.content,
-                            }
-                        }
+        # 3. 处理工具调用 (Model 角色下)
+        if msg.role == "model" and msg.tool_calls:
+            for i, tc in enumerate(msg.tool_calls):
+                # 转换 arguments
+                try:
+                    args = json.loads(tc.function.arguments) if isinstance(tc.function.arguments, str) else tc.function.arguments
+                except:
+                    args = {}
+                
+                part = {
+                    "functionCall": {
+                        "name": tc.function.name,
+                        "args": args
                     }
-                    }]
                 }
-            )
-        elif msg.role != "system" and content:
-            messages.append({"role": msg.role, "parts": content})
+                # 签名逻辑：第一个 FC 必须携带签名
+                sig = (getattr(tc, "extra_content", {}) or {}).get("google", {}).get("thoughtSignature")
+                if not sig and i == 0:
+                    sig = msg_signature
+                
+                if sig:
+                    part["thoughtSignature"] = sig
+                    msg_signature = None # 已消耗
+                
+                parts.append(part)
+
+        # 4. 如果没有工具调用但有签名，附在最后一个文本块
+        if msg_signature and parts:
+            # 找到最后一个非 thought 的文本块或 FC 块
+            parts[-1]["thoughtSignature"] = msg_signature
+
+        # 5. 处理函数响应 (Tool 角色下)
+        if msg.role == "tool":
+            messages.append({
+                "role": "function",
+                "parts": [{
+                    "functionResponse": {
+                        "name": msg.name or msg.tool_call_id,
+                        "response": {"result": msg.content}
+                    }
+                }]
+            })
+        elif msg.role != "system" and parts:
+            messages.append({"role": msg.role, "parts": parts})
         elif msg.role == "system":
-            content[0]["text"] = re.sub(r"_+", "_", content[0]["text"])
-            system_prompt = system_prompt + "\n\n" + content[0]["text"]
+            # 系统提示词处理逻辑保持不变
+            sys_text = "".join([p.get("text", "") for p in parts if "text" in p])
+            sys_text = re.sub(r"_+", "_", sys_text)
+            system_prompt = system_prompt + "\n\n" + sys_text
     if system_prompt.strip():
         systemInstruction = {"parts": [{"text": system_prompt}]}
 
@@ -371,9 +388,21 @@ async def gemini_json_process(response_json):
     candidatesTokenCount = 0
     totalTokenCount = 0
     image_base64 = None
+    thought_signature = None
 
     json_data = safe_get(response_json, "candidates", 0, "content", default=None)
     finishReason = safe_get(response_json, "candidates", 0, "finishReason", default=None)
+    
+    # 提取签名 (Google 规范：可能在任何 part 中，通常在第一个 FC 或最后一个文本块)
+    parts_data = safe_get(json_data, "parts", default=[])
+    if parts_data:
+        # 遍历 parts 寻找签名
+        for p in parts_data:
+            sig = p.get("thoughtSignature")
+            if sig:
+                thought_signature = sig
+                break
+
     if finishReason:
         promptTokenCount = safe_get(response_json, "usageMetadata", "promptTokenCount", default=0)
         candidatesTokenCount = safe_get(response_json, "usageMetadata", "candidatesTokenCount", default=0)
@@ -399,7 +428,7 @@ async def gemini_json_process(response_json):
     if not blockReason:
         blockReason = safe_get(response_json, "candidates", 0, "blockReason", default=None)
 
-    return is_thinking, reasoning_content, content, image_base64, function_call_name, function_full_response, finishReason, blockReason, promptTokenCount, candidatesTokenCount, totalTokenCount
+    return is_thinking, reasoning_content, content, image_base64, function_call_name, function_full_response, finishReason, blockReason, promptTokenCount, candidatesTokenCount, totalTokenCount, thought_signature
 
 
 async def fetch_gemini_response(client, url, headers, payload, model, timeout):
@@ -429,7 +458,7 @@ async def fetch_gemini_response(client, url, headers, payload, model, timeout):
     # 检查 blockReason
     if isinstance(parsed_data, list) and len(parsed_data) > 0:
         first_resp = parsed_data[0]
-        is_thinking, reasoning_content, content, image_base64, function_call_name, function_full_response, finishReason, blockReason, promptTokenCount, candidatesTokenCount, totalTokenCount = await gemini_json_process(first_resp)
+        is_thinking, reasoning_content, content, image_base64, function_call_name, function_full_response, finishReason, blockReason, promptTokenCount, candidatesTokenCount, totalTokenCount, thought_signature = await gemini_json_process(first_resp)
         
         if blockReason and blockReason != "STOP":
             yield {"error": f"Gemini Blocked: {blockReason}", "status_code": 400, "details": first_resp}
@@ -479,7 +508,7 @@ async def fetch_gemini_response(client, url, headers, payload, model, timeout):
         function_call_name=function_call_name, function_call_content=function_call_content, 
         role=role, total_tokens=total_tokens, prompt_tokens=prompt_tokens, 
         completion_tokens=candidates_tokens, reasoning_content=reasoning_content, 
-        image_base64=image_base64
+        image_base64=image_base64, thought_signature=thought_signature
     )
 
 
@@ -519,28 +548,28 @@ async def fetch_gemini_response_stream(client, url, headers, payload, model, tim
                         continue
 
                 # https://ai.google.dev/api/generate-content?hl=zh-cn#FinishReason
-                is_thinking, reasoning_content, content, image_base64, function_call_name, function_full_response, finishReason, blockReason, promptTokenCount, candidatesTokenCount, totalTokenCount = await gemini_json_process(response_json)
+                is_thinking, reasoning_content, content, image_base64, function_call_name, function_full_response, finishReason, blockReason, promptTokenCount, candidatesTokenCount, totalTokenCount, thought_signature = await gemini_json_process(response_json)
 
                 if is_thinking:
-                    sse_string = await generate_sse_response(timestamp, model, reasoning_content=reasoning_content)
+                    sse_string = await generate_sse_response(timestamp, model, reasoning_content=reasoning_content, thought_signature=thought_signature)
                     yield sse_string
                 if not image_base64 and content:
-                    sse_string = await generate_sse_response(timestamp, model, content=content)
+                    sse_string = await generate_sse_response(timestamp, model, content=content, thought_signature=thought_signature)
                     yield sse_string
 
                 if image_base64:
                     if "gemini-2.5-flash-image" not in model and "gemini-3-pro-image" not in model:
-                        yield await generate_no_stream_response(timestamp, model, content=content, tools_id=None, function_call_name=None, function_call_content=None, role=None, total_tokens=totalTokenCount, prompt_tokens=promptTokenCount, completion_tokens=candidatesTokenCount, image_base64=image_base64)
+                        yield await generate_no_stream_response(timestamp, model, content=content, tools_id=None, function_call_name=None, function_call_content=None, role=None, total_tokens=totalTokenCount, prompt_tokens=promptTokenCount, completion_tokens=candidatesTokenCount, image_base64=image_base64, thought_signature=thought_signature)
                     else:
                         image_url = await upload_image_to_0x0st("data:image/png;base64," + image_base64)
-                        sse_string = await generate_sse_response(timestamp, model, content=f"\n\n![image]({image_url})")
+                        sse_string = await generate_sse_response(timestamp, model, content=f"\n\n![image]({image_url})", thought_signature=thought_signature)
                         yield sse_string
 
                 if function_call_name:
-                    sse_string = await generate_sse_response(timestamp, model, content=None, tools_id="chatcmpl-9inWv0yEtgn873CxMBzHeCeiHctTV", function_call_name=function_call_name)
+                    sse_string = await generate_sse_response(timestamp, model, content=None, tools_id="chatcmpl-9inWv0yEtgn873CxMBzHeCeiHctTV", function_call_name=function_call_name, thought_signature=thought_signature)
                     yield sse_string
                 if function_full_response:
-                    sse_string = await generate_sse_response(timestamp, model, content=None, tools_id="chatcmpl-9inWv0yEtgn873CxMBzHeCeiHctTV", function_call_name=None, function_call_content=function_full_response)
+                    sse_string = await generate_sse_response(timestamp, model, content=None, tools_id="chatcmpl-9inWv0yEtgn873CxMBzHeCeiHctTV", function_call_name=None, function_call_content=function_full_response, thought_signature=thought_signature)
                     yield sse_string
 
                 if parts_json == "[]" or (blockReason and blockReason != "STOP"):
