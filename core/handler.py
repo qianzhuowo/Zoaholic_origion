@@ -32,6 +32,7 @@ from core.models import (
 )
 from core.utils import get_engine, provider_api_circular_list, truncate_for_logging
 from core.routing import get_right_order_providers
+from core.error_response import openai_error_response
 from utils import safe_get, error_handling_wrapper
 
 if TYPE_CHECKING:
@@ -487,8 +488,6 @@ async def process_request_passthrough(
     proxy = safe_get(app.state.config, "preferences", "proxy", default=None)
     proxy = safe_get(provider, "preferences", "proxy", default=proxy)
 
-    start_ts = time()
-
     try:
         async with app.state.client_manager.get_client(url, proxy) as client:
             last_message_role = safe_get(request, "messages", -1, "role", default=None)
@@ -594,7 +593,7 @@ class ModelRequestHandler:
         endpoint: Optional[str] = None,
         dialect_id: Optional[str] = None,
         original_payload: Optional[Dict[str, Any]] = None,
-        original_headers: Optional[Dict[str, str]] = None,
+   original_headers: Optional[Dict[str, str]] = None,
     ) -> Response:
         """
         处理模型请求
@@ -912,10 +911,7 @@ class ModelRequestHandler:
                         current_info["process_time"] = process_time
                     # 写入失败统计
                     background_tasks.add_task(update_stats, current_info, app=self.app)
-                    return JSONResponse(
-                        status_code=status_code,
-                        content={"error": f"Error: Current provider response failed: {error_message}"}
-                    )
+                    return openai_error_response(f"Error: Current provider response failed: {error_message}", status_code)
 
         # 所有重试都失败
         current_info = self.request_info_getter()
@@ -933,7 +929,4 @@ class ModelRequestHandler:
             current_info["process_time"] = process_time
         # 写入失败统计
         background_tasks.add_task(update_stats, current_info, app=self.app)
-        return JSONResponse(
-            status_code=status_code,
-            content={"error": f"All {request_data.model} error: {error_message}"}
-        )
+        return openai_error_response(f"All {request_data.model} error: {error_message}", status_code)

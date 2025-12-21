@@ -8,6 +8,7 @@ const ConfigView = {
 
     render(container) {
         ConfigView._container = container;
+        container.innerHTML = "";
         const header = UI.el("div", "flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6");
         const titleSection = UI.el("div");
         titleSection.appendChild(UI.el("h2", "text-display-small text-md-on-surface", "渠道配置"));
@@ -41,6 +42,35 @@ const ConfigView = {
                 });
             }
         } else {
+            Views.render("config");
+        }
+    },
+
+    /**
+     * 使用本地数据刷新视图（避免重新从后端获取导致的时序问题）
+     */
+    _refreshWithData(providers) {
+        const viewport = document.getElementById("content-viewport");
+        const scrollTop = viewport ? viewport.scrollTop : 0;
+        
+        if (ConfigView._container) {
+            // 清除旧内容，只保留头部
+            const container = ConfigView._container;
+            const children = Array.from(container.children);
+            // 移除除了第一个元素（头部）之外的所有内容
+            children.slice(1).forEach(child => child.remove());
+            
+            // 使用本地数据重新渲染表格
+            ConfigView._renderTable(container, providers);
+            
+            // 恢复滚动位置
+            if (viewport) {
+                requestAnimationFrame(() => {
+                    viewport.scrollTop = scrollTop;
+                });
+            }
+        } else {
+            // 容器不存在时，走正常的完整渲染流程
             Views.render("config");
         }
     },
@@ -931,7 +961,8 @@ const ConfigView = {
                 return;
             }
             ConfigView._apiConfig = bodyConfig;
-            ConfigView.refresh();
+            // 直接使用更新后的数据重新渲染，避免重新从后端获取导致的时序问题
+            ConfigView._refreshWithData(bodyConfig.providers);
             UI.snackbar(enabled ? "渠道已启用" : "渠道已禁用", null, null, { variant: "success" });
         } catch (e) {
             UI.snackbar(`操作失败: ${e.message}`, null, null, { variant: "error" });
@@ -974,8 +1005,8 @@ const ConfigView = {
                 return;
             }
             ConfigView._apiConfig = bodyConfig;
-            // 更新列表显示以应用按优先级的默认排序
-            ConfigView.refresh();
+            // 直接使用更新后的数据重新渲染，应用按优先级的默认排序
+            ConfigView._refreshWithData(bodyConfig.providers);
             UI.snackbar(`优先级已更新为 ${newWeight}`, null, null, { variant: "success" });
         } catch (e) {
             UI.snackbar(`更新优先级失败: ${e.message}`, null, null, { variant: "error" });
@@ -1043,6 +1074,7 @@ const ConfigView = {
             engine: originalProvider?.engine || "",
             image: originalProvider?.image !== false,
             model_prefix: originalProvider?.model_prefix || "",
+            enabled: originalProvider ? (originalProvider.enabled !== false) : true,
             preferences: { ...rawPreferences },
         };
 
@@ -1155,6 +1187,12 @@ Object.assign(ConfigView, {
         });
         prefixWrap.input.oninput = (e) => { providerData.model_prefix = e.target.value; };
         basicSection.appendChild(prefixWrap.wrapper);
+
+        // 启用/禁用渠道
+        const enabledSwitch = UI.switch("启用该渠道", providerData.enabled !== false, (checked) => {
+            providerData.enabled = checked;
+        });
+        basicSection.appendChild(enabledSwitch);
 
         // 分组编辑 - 多组支持
         if (!Array.isArray(providerData.groups)) {
@@ -2602,6 +2640,7 @@ Object.assign(ConfigView, {
         if (providerData.engine?.trim()) target.engine = providerData.engine.trim();
         else delete target.engine;
         target.image = providerData.image;
+        target.enabled = providerData.enabled !== false;
 
         // 分组
         if (Array.isArray(providerData.groups) && providerData.groups.length) {

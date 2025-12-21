@@ -10,6 +10,7 @@ from typing import Any, Dict, TYPE_CHECKING
 from fastapi import APIRouter, Request, BackgroundTasks, Depends
 from fastapi.responses import JSONResponse
 
+from core.error_response import openai_error_response
 from .registry import get_dialect, list_dialects, EndpointDefinition
 
 if TYPE_CHECKING:
@@ -83,7 +84,7 @@ def _create_generic_handler(dialect_id: str, endpoint: EndpointDefinition):
 
         dialect = get_dialect(dialect_id)
         if not dialect or not dialect.parse_request:
-            return JSONResponse(status_code=500, content={"error": f"{dialect_id} dialect not registered"})
+            return openai_error_response(f"{dialect_id} dialect not registered", 500)
 
         try:
             native_body: Dict[str, Any] = await request.json()

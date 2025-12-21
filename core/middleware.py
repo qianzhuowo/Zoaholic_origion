@@ -13,21 +13,19 @@ import asyncio
 import contextvars
 from time import time
 from datetime import datetime, timedelta, timezone
-from typing import Optional, Callable, Any
+from typing import Optional, Any
 
 from pydantic import ValidationError
 from fastapi import Request, BackgroundTasks
 from fastapi.encoders import jsonable_encoder
 from fastapi.responses import JSONResponse
-from fastapi.responses import StreamingResponse as FastAPIStreamingResponse
-from starlette.responses import StreamingResponse as StarletteStreamingResponse
 from starlette.types import ASGIApp, Receive, Send, Scope, Message
 
 from core.log_config import logger
 from core.models import ModerationRequest, UnifiedRequest
-from core.streaming import LoggingStreamingResponse
 from core.stats import update_stats
 from core.utils import truncate_for_logging
+from core.error_response import openai_error_response
 from utils import safe_get
 from db import DISABLE_DATABASE
 
@@ -194,9 +192,7 @@ class StatsMiddleware:
             # 标准端点：执行完整认证
             token = get_api_key_from_headers(headers)
             if not token:
-                response = JSONResponse(
-                    status_code=403, content={"error": "Invalid or missing API Key"}
-                )
+                response = openai_error_response("Invalid or missing API Key", 403)
                 await response(scope, receive, send)
                 return
 
@@ -228,18 +224,11 @@ class StatsMiddleware:
                         is False
                         and not path.startswith("/v1/token_usage")
                     ):
-                        response = JSONResponse(
-                            status_code=429,
-                            content={
-                                "error": "Balance is insufficient, please check your account."
-                            },
-                        )
+                        response = openai_error_response("Balance is insufficient, please check your account.", 429)
                         await response(scope, receive, send)
                         return
             else:
-                response = JSONResponse(
-                    status_code=403, content={"error": "Invalid or missing API Key"}
-                )
+                response = openai_error_response("Invalid or missing API Key", 403)
                 await response(scope, receive, send)
                 return
 
@@ -358,7 +347,7 @@ class StatsMiddleware:
                     try:
                         await app.state.user_api_keys_rate_limit[final_api_key].next(model)
                     except Exception:
-                        response = JSONResponse(status_code=429, content={"error": "Too many requests"})
+                        response = openai_error_response("Too many requests", 429)
                         await response(scope, receive_wrapper, send)
                         return
 
@@ -391,10 +380,7 @@ class StatsMiddleware:
                             current_info["is_flagged"] = is_flagged
                             current_info["text"] = moderated_content
                             await update_stats(current_info, app=app)
-                            response = JSONResponse(
-                                status_code=400,
-                                content={"error": "Content did not pass the moral check, please modify and try again."},
-                            )
+                            response = openai_error_response("Content did not pass the moral check, please modify and try again.", 400)
                             await response(scope, receive_wrapper, send)
                             return
                 except ValidationError as e:
@@ -427,20 +413,18 @@ class StatsMiddleware:
                 json.dumps(parsed_body, indent=2, ensure_ascii=False) if parsed_body else "None",
                 e.errors(),
             )
-            content = await asyncio.to_thread(
-                jsonable_encoder, {"detail": e.errors()}
-            )
-            response = JSONResponse(status_code=422, content=content)
+            # 将 validation 错误信息格式化为可读字符串
+            error_details = "; ".join([f"{err['loc'][-1]}: {err['msg']}" for err in e.errors()[:3]])
+            if len(e.errors()) > 3:
+                error_details += f" (and {len(e.errors()) - 3} more errors)"
+            response = openai_error_response(f"Invalid request body: {error_details}", 422)
             await response(scope, receive_wrapper, send)
         except Exception as e:
             if self.debug:
                 import traceback
                 traceback.print_exc()
             logger.error("Error processing request: %s", str(e))
-            response = JSONResponse(
-                status_code=500,
-                content={"error": f"Internal server error: {str(e)}"},
-            )
+            response = openai_error_response(f"Internal server error: {str(e)}", 500)
             await response(scope, receive_wrapper, send)
         finally:
             request_info.reset(current_request_info)

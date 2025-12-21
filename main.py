@@ -26,6 +26,7 @@ from core.handler import (
     set_debug_mode as set_handler_debug_mode,
 )
 from core.middleware import StatsMiddleware, request_info, get_api_key
+from core.error_response import openai_error_response
 
 from utils import safe_get, load_config
 
@@ -312,10 +313,7 @@ async def http_exception_handler(request: Request, exc: HTTPException):
     if exc.status_code == 404:
         token = await get_api_key(request)
         logger.error(f"404 Error: {exc.detail} api_key: {token}")
-    return JSONResponse(
-        status_code=exc.status_code,
-        content={"message": exc.detail},
-    )
+    return openai_error_response(message=str(exc.detail), status_code=exc.status_code)
 
 
 # 配置 CORS 中间件
