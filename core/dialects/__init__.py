@@ -26,11 +26,13 @@ from .registry import (
 
 # 导入内置方言模块以触发注册
 from . import openai as openai_dialect
+from . import openai_responses as openai_responses_dialect
 from . import gemini as gemini_dialect
 from . import claude as claude_dialect
 
 # 调用 register() 完成注册
 openai_dialect.register()
+openai_responses_dialect.register()
 gemini_dialect.register()
 claude_dialect.register()
 

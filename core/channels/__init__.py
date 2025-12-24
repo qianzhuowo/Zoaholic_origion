@@ -19,6 +19,7 @@ from .registry import (
 
 # 导入各渠道模块以触发注册
 from . import openai_channel
+from . import openai_responses_channel
 from . import gemini_channel
 from . import claude_channel
 from . import azure_channel
@@ -29,6 +30,7 @@ from . import cloudflare_channel
 
 # 调用各渠道的 register() 函数
 openai_channel.register()
+openai_responses_channel.register()
 gemini_channel.register()
 claude_channel.register()
 azure_channel.register()

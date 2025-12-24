@@ -88,7 +88,7 @@ def is_openai_reasoning_model(model: Any, engine: str) -> bool:
         return False
     
     # 只处理 OpenAI 兼容的引擎
-    supported_engines = {"openai", "azure", "openrouter"}
+    supported_engines = {"openai", "azure", "openrouter", "openai-responses"}
     if engine.lower() not in supported_engines:
         return False
     

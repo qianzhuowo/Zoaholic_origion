@@ -230,10 +230,27 @@ async def get_claude_payload(request, engine, provider, api_key=None):
             payload[field] = value
 
     if request.tools and provider.get("tools"):
-        tools = []
+        tools = payload.get("tools", [])  # 保留已有的工具（如插件添加的）
         for tool in request.tools:
-            json_tool = await gpt2claude_tools_json(tool.dict()["function"])
-            tools.append(json_tool)
+            # 检查是否已经是 Claude 服务器端工具格式（如 web_search_20250305）
+            if hasattr(tool, 'dict'):
+                tool_dict = tool.dict()
+            else:
+                tool_dict = tool if isinstance(tool, dict) else {}
+
+            # 服务器端工具的 type 包含日期后缀，直接保留
+            tool_type = tool_dict.get("type", "")
+            if tool_type and ("_20" in tool_type or tool_type.startswith("web_search") or tool_type.startswith("code_execution") or tool_type.startswith("computer_") or tool_type.startswith("text_editor")):
+                # 服务器端工具，直接使用
+                tools.append(tool_dict)
+            elif "function" in tool_dict:
+                # 客户端函数工具，需要转换格式
+                json_tool = await gpt2claude_tools_json(tool_dict["function"])
+                tools.append(json_tool)
+            else:
+                # 其他格式，尝试转换
+                json_tool = await gpt2claude_tools_json(tool_dict)
+                tools.append(json_tool)
         payload["tools"] = tools
         if "tool_choice" in payload:
             if isinstance(payload["tool_choice"], dict):
@@ -297,7 +314,7 @@ async def fetch_claude_response(client, url, headers, payload, model, timeout):
     timestamp = int(datetime.timestamp(datetime.now()))
     json_payload = await asyncio.to_thread(json.dumps, payload)
     response = await client.post(url, headers=headers, content=json_payload, timeout=timeout)
-    
+
     error_message = await check_response(response, "fetch_claude_response")
     if error_message:
         yield error_message
@@ -306,7 +323,39 @@ async def fetch_claude_response(client, url, headers, payload, model, timeout):
     response_bytes = await response.aread()
     response_json = await asyncio.to_thread(json.loads, response_bytes)
 
-    content = safe_get(response_json, "content", 0, "text")
+    # 遍历 content 数组，提取文本内容和客户端工具调用
+    # 跳过服务器端工具（server_tool_use, web_search_tool_result）
+    content_list = response_json.get("content", [])
+    text_parts = []
+    function_call_name = None
+    function_call_content = None
+    tools_id = None
+
+    thinking_parts = []
+
+    for item in content_list:
+        item_type = item.get("type", "")
+
+        # 服务器端工具 - 跳过（Claude 已自动处理）
+        if item_type in ("server_tool_use", "web_search_tool_result"):
+            continue
+
+        # thinking 内容
+        if item_type == "thinking":
+            thinking_parts.append(item.get("thinking", ""))
+
+        # 文本内容
+        if item_type == "text":
+            text_parts.append(item.get("text", ""))
+
+        # 客户端工具调用
+        if item_type == "tool_use":
+            function_call_name = item.get("name")
+            function_call_content = item.get("input")
+            tools_id = item.get("id")
+
+    content = "".join(text_parts) if text_parts else None
+    reasoning_content = "".join(thinking_parts) if thinking_parts else None
 
     prompt_tokens = safe_get(response_json, "usage", "input_tokens")
     output_tokens = safe_get(response_json, "usage", "output_tokens")
@@ -314,15 +363,11 @@ async def fetch_claude_response(client, url, headers, payload, model, timeout):
 
     role = safe_get(response_json, "role")
 
-    function_call_name = safe_get(response_json, "content", 1, "name", default=None)
-    function_call_content = safe_get(response_json, "content", 1, "input", default=None)
-    tools_id = safe_get(response_json, "content", 1, "id", default=None)
-
     yield await generate_no_stream_response(
-        timestamp, model, content=content, tools_id=tools_id, 
-        function_call_name=function_call_name, function_call_content=function_call_content, 
-        role=role, total_tokens=total_tokens, prompt_tokens=prompt_tokens, 
-        completion_tokens=output_tokens
+        timestamp, model, content=content, tools_id=tools_id,
+        function_call_name=function_call_name, function_call_content=function_call_content,
+        role=role, total_tokens=total_tokens, prompt_tokens=prompt_tokens,
+        completion_tokens=output_tokens, reasoning_content=reasoning_content
     )
 
 
@@ -337,6 +382,9 @@ async def fetch_claude_response_stream(client, url, headers, payload, model, tim
             return
         buffer = ""
         input_tokens = 0
+        # 跟踪当前 content_block 类型，用于区分服务器端工具和客户端工具
+        current_block_type = None
+        current_block_id = None
         async for chunk in response.aiter_text():
             buffer += chunk
             while "\n" in buffer:
@@ -353,25 +401,82 @@ async def fetch_claude_response_stream(client, url, headers, payload, model, tim
                         yield sse_string
                         break
 
+                    # 处理 content_block_start 事件，记录当前块类型
+                    event_type = resp.get("type", "")
+                    if event_type == "content_block_start":
+                        content_block = resp.get("content_block", {})
+                        current_block_type = content_block.get("type", "")
+                        current_block_id = content_block.get("id", "")
+
+                        # 服务器端工具（server_tool_use）- 不转换为 tool_calls
+                        # 让 Claude 自动执行，等待结果
+                        if current_block_type == "server_tool_use":
+                            # 可选：输出搜索中的提示
+                            # sse_string = await generate_sse_response(timestamp, model, content=f"[正在搜索: {content_block.get('name', '')}]\n")
+                            # yield sse_string
+                            continue
+
+                        # 客户端工具（tool_use）- 转换为 tool_calls
+                        if current_block_type == "tool_use":
+                            function_call_name = content_block.get("name", "")
+                            tools_id = content_block.get("id", "")
+                            if tools_id and function_call_name:
+                                sse_string = await generate_sse_response(timestamp, model, None, tools_id, function_call_name, None)
+                                yield sse_string
+                            continue
+
+                    # 处理 content_block_delta 事件
+                    if event_type == "content_block_delta":
+                        delta = resp.get("delta", {})
+                        delta_type = delta.get("type", "")
+
+                        # 服务器端工具的 input_json_delta - 跳过（内部处理）
+                        if current_block_type == "server_tool_use" and delta_type == "input_json_delta":
+                            continue
+
+                        # 客户端工具的 input_json_delta - 输出参数
+                        if current_block_type == "tool_use" and delta_type == "input_json_delta":
+                            partial_json = delta.get("partial_json", "")
+                            if partial_json:
+                                sse_string = await generate_sse_response(timestamp, model, None, None, None, partial_json)
+                                yield sse_string
+                            continue
+
+                    # 处理 web_search_tool_result - 服务器端搜索结果（跳过，Claude 会自动使用）
+                    if event_type == "content_block_start":
+                        content_block = resp.get("content_block", {})
+                        if content_block.get("type") == "web_search_tool_result":
+                            current_block_type = "web_search_tool_result"
+                            continue
+
+                    if current_block_type == "web_search_tool_result":
+                        continue
+
+                    # 正常文本输出
                     text = safe_get(resp, "delta", "text", default="")
                     if text:
                         sse_string = await generate_sse_response(timestamp, model, text)
                         yield sse_string
                         continue
 
+                    # 兼容旧逻辑：直接从 content_block 获取工具信息
                     function_call_name = safe_get(resp, "content_block", "name", default=None)
                     tools_id = safe_get(resp, "content_block", "id", default=None)
-                    if tools_id and function_call_name:
+                    block_type = safe_get(resp, "content_block", "type", default="")
+                    # 只处理客户端工具（tool_use），跳过服务器端工具（server_tool_use）
+                    if tools_id and function_call_name and block_type == "tool_use":
                         sse_string = await generate_sse_response(timestamp, model, None, tools_id, function_call_name, None)
                         yield sse_string
 
+                    # thinking 内容
                     thinking_content = safe_get(resp, "delta", "thinking", default="")
                     if thinking_content:
                         sse_string = await generate_sse_response(timestamp, model, reasoning_content=thinking_content)
                         yield sse_string
 
+                    # 客户端工具参数（兼容旧逻辑）
                     function_call_content = safe_get(resp, "delta", "partial_json", default="")
-                    if function_call_content:
+                    if function_call_content and current_block_type != "server_tool_use":
                         sse_string = await generate_sse_response(timestamp, model, None, None, None, function_call_content)
                         yield sse_string
 
