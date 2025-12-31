@@ -386,28 +386,72 @@ def parse_gemini_usage(data: Any) -> Optional[Dict[str, int]]:
 # ============== 自定义端点处理函数 ==============
 
 
+async def _get_gemini_models(api_index: int):
+    """获取格式化后的 Gemini 模型列表"""
+    from routes.deps import get_app
+    from utils import post_all_models
+
+    app = get_app()
+    models = post_all_models(api_index, app.state.config, app.state.api_list, app.state.models_list)
+    
+    gemini_models = []
+    for m in models:
+        if not isinstance(m, dict) or not m.get("id"):
+            continue
+        
+        model_id = m["id"]
+        # 确保 name 以 models/ 开头且不重复
+        name = model_id if model_id.startswith("models/") else f"models/{model_id}"
+        
+        gemini_models.append({
+            "name": name,
+            "version": "v1beta",
+            "displayName": model_id,
+            "description": f"Zoaholic provided model: {model_id}",
+            "supportedGenerationMethods": ["generateContent", "countTokens"],
+            "inputTokenLimit": 30720,
+            "outputTokenLimit": 2048,
+        })
+    return gemini_models
+
+
 async def list_gemini_models_handler(
     request: "Request",
     api_index: int,
     **kwargs,
 ):
     """
-    Gemini 模型列表端点 - GET /v1beta/models
-    
-    返回格式与 Google Gemini API 一致：
-    {"models": [{"name": "models/{id}"}, ...]}
+    Gemini 模型列表端点 - GET /v1/models & /v1beta/models
     """
     from fastapi.responses import JSONResponse
-    from routes.deps import get_app
-    from utils import post_all_models
-
-    app = get_app()
-    models = post_all_models(api_index, app.state.config, app.state.api_list, app.state.models_list)
-    gemini_models = [
-        {"name": f"models/{m['id']}"} for m in models
-        if isinstance(m, dict) and m.get("id")
-    ]
+    gemini_models = await _get_gemini_models(api_index)
     return JSONResponse(content={"models": gemini_models})
+
+
+async def get_gemini_model_handler(
+    request: "Request",
+    api_index: int,
+    **kwargs,
+):
+    """
+    Gemini 获取单个模型详情 - GET /v1/models/{model} & /v1beta/models/{model}
+    """
+    from fastapi.responses import JSONResponse
+    from fastapi import HTTPException
+    
+    model_id = request.path_params.get("model")
+    if not model_id:
+        raise HTTPException(status_code=400, detail="Model ID is required")
+    
+    # 支持带 models/ 前缀的查询
+    target_name = model_id if model_id.startswith("models/") else f"models/{model_id}"
+    
+    models = await _get_gemini_models(api_index)
+    for m in models:
+        if m["name"] == target_name:
+            return JSONResponse(content=m)
+            
+    raise HTTPException(status_code=404, detail=f"Model not found: {model_id}")
 
 
 # ============== 注册 ==============
@@ -427,7 +471,7 @@ def register() -> None:
             target_engine="gemini",
             extract_token=extract_gemini_token,
             endpoints=[
-                # GET /v1beta/models - 列出模型（自定义处理函数）
+                # GET /v1beta/models - 列出模型
                 EndpointDefinition(
                     prefix="/v1beta",
                     path="/models",
@@ -435,7 +479,33 @@ def register() -> None:
                     handler=list_gemini_models_handler,
                     tags=["Gemini Dialect"],
                     summary="List Gemini Models",
-                    description="返回 Gemini 格式的模型列表",
+                ),
+                # GET /v1/models - 列出模型
+                EndpointDefinition(
+                    prefix="/v1",
+                    path="/models",
+                    methods=["GET"],
+                    handler=list_gemini_models_handler,
+                    tags=["Gemini Dialect"],
+                    summary="List Gemini Models (v1)",
+                ),
+                # GET /v1beta/models/{model} - 获取模型详情
+                EndpointDefinition(
+                    prefix="/v1beta",
+                    path="/models/{model}",
+                    methods=["GET"],
+                    handler=get_gemini_model_handler,
+                    tags=["Gemini Dialect"],
+                    summary="Get Gemini Model",
+                ),
+                # GET /v1/models/{model} - 获取模型详情
+                EndpointDefinition(
+                    prefix="/v1",
+                    path="/models/{model}",
+                    methods=["GET"],
+                    handler=get_gemini_model_handler,
+                    tags=["Gemini Dialect"],
+                    summary="Get Gemini Model (v1)",
                 ),
                 # POST /v1beta/models/{model}:generateContent - 非流式
                 EndpointDefinition(
@@ -444,7 +514,14 @@ def register() -> None:
                     methods=["POST"],
                     tags=["Gemini Dialect"],
                     summary="Generate Content",
-                    description="Gemini 原生格式非流式生成",
+                ),
+                # POST /v1/models/{model}:generateContent - 非流式
+                EndpointDefinition(
+                    prefix="/v1",
+                    path="/models/{model}:generateContent",
+                    methods=["POST"],
+                    tags=["Gemini Dialect"],
+                    summary="Generate Content (v1)",
                 ),
                 # POST /v1beta/models/{model}:streamGenerateContent - 流式
                 EndpointDefinition(
@@ -453,7 +530,14 @@ def register() -> None:
                     methods=["POST"],
                     tags=["Gemini Dialect"],
                     summary="Stream Generate Content",
-                    description="Gemini 原生格式流式生成",
+                ),
+                # POST /v1/models/{model}:streamGenerateContent - 流式
+                EndpointDefinition(
+                    prefix="/v1",
+                    path="/models/{model}:streamGenerateContent",
+                    methods=["POST"],
+                    tags=["Gemini Dialect"],
+                    summary="Stream Generate Content (v1)",
                 ),
             ],
         )
