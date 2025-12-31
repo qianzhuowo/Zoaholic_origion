@@ -17,7 +17,7 @@ from fastapi import FastAPI, HTTPException, Request
 
 from core.log_config import logger
 from routes import api_router
-from core.utils import parse_rate_limit, ThreadSafeCircularList
+from core.utils import parse_rate_limit, ThreadSafeCircularList, ApiKeyRateLimitRegistry
 from core.client_manager import ClientManager
 from core.channel_manager import ChannelManager
 from core.routing import set_debug_mode as set_routing_debug_mode
@@ -157,7 +157,12 @@ async def lifespan(app: FastAPI):
         # print("app.state.config", json.dumps(app.state.config, indent=4, ensure_ascii=False, default=json_default))
 
         if app.state.api_list:
-            app.state.user_api_keys_rate_limit = defaultdict(ThreadSafeCircularList)
+            # 使用智能 Registry，自动按需创建限流器
+            app.state.user_api_keys_rate_limit = ApiKeyRateLimitRegistry(
+                config_getter=lambda: app.state.config,
+                api_list_getter=lambda: app.state.api_list
+            )
+            # 预初始化现有 key 的限流器
             for api_index, api_key in enumerate(app.state.api_list):
                 app.state.user_api_keys_rate_limit[api_key] = ThreadSafeCircularList(
                     [api_key],

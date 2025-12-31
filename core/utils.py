@@ -647,6 +647,52 @@ def circular_list_encoder(obj):
 provider_api_circular_list = defaultdict(ThreadSafeCircularList)
 
 
+class ApiKeyRateLimitRegistry(dict):
+    """
+    API Key 限流器注册表
+    
+    按需自动创建限流器，解决动态添加 API key 时没有对应限流器的问题。
+    继承 dict 并重写 __missing__，在访问不存在的 key 时自动创建正确配置的限流器。
+    """
+    
+    def __init__(self, config_getter, api_list_getter):
+        """
+        Args:
+            config_getter: 获取当前配置的函数，返回 app.state.config
+            api_list_getter: 获取当前 API 列表的函数，返回 app.state.api_list
+        """
+        super().__init__()
+        self._config_getter = config_getter
+        self._api_list_getter = api_list_getter
+    
+    def __missing__(self, api_key: str):
+        """
+        当访问不存在的 key 时自动创建限流器
+        """
+        config = self._config_getter()
+        api_list = self._api_list_getter()
+        
+        # 查找 API key 的配置
+        try:
+            api_index = api_list.index(api_key)
+            rate_limit = safe_get(
+                config, 'api_keys', api_index, "preferences", "rate_limit",
+                default={"default": "999999/min"}
+            )
+        except (ValueError, IndexError):
+            # 找不到配置，使用默认限流
+            rate_limit = {"default": "999999/min"}
+        
+        # 创建限流器并缓存
+        limiter = ThreadSafeCircularList(
+            [api_key],
+            rate_limit,
+            "round_robin"
+        )
+        self[api_key] = limiter
+        return limiter
+
+
 # end_of_line = "\n\r\n"
 # end_of_line = "\r\n"
 # end_of_line = "\n\r"
