@@ -96,25 +96,19 @@ def is_openai_reasoning_model(model: Any, engine: str) -> bool:
     return get_reasoning_effort_suffix(model) is not None
 
 
-def set_reasoning_parameters(payload: Dict[str, Any], effort: str) -> None:
+def set_reasoning_parameters(payload: Dict[str, Any], effort: str, engine: str) -> None:
     """
     设置 reasoning 相关参数
     
-    支持多种参数格式以兼容不同的 API 版本：
-    - reasoning_effort: Chat Completions API 格式
-    - reasoningEffort: camelCase 格式（部分代理/封装可能使用）
-    - reasoning: Responses API 格式（包含 effort 和 summary）
+    根据不同引擎设置不同格式：
+    - openai-responses: 只设置 reasoning 对象（不支持其他格式）
+    - openai/azure/openrouter: 设置 reasoning_effort 和兼容格式
     
     Args:
         payload: 请求 payload
         effort: reasoning effort 级别 (high/medium/low/minimal)
+        engine: 引擎类型
     """
-    # Chat Completions API 格式 (snake_case)
-    payload["reasoning_effort"] = effort
-    
-    # camelCase 格式（兼容某些代理）
-    payload["reasoningEffort"] = effort
-    
     # Responses API 格式（如果有 reasoning 对象则合并，否则创建）
     if "reasoning" not in payload or not isinstance(payload.get("reasoning"), dict):
         payload["reasoning"] = {}
@@ -125,6 +119,16 @@ def set_reasoning_parameters(payload: Dict[str, Any], effort: str) -> None:
     # 设置 reasoning_summary 为 auto（自动生成推理摘要）
     if "summary" not in reasoning:
         reasoning["summary"] = "auto"
+    
+    # OpenAI Responses API 只支持 reasoning 对象格式，不要添加其他参数
+    if engine.lower() == "openai-responses":
+        return
+    
+    # Chat Completions API 格式 (snake_case)
+    payload["reasoning_effort"] = effort
+    
+    # camelCase 格式（兼容某些代理）
+    payload["reasoningEffort"] = effort
     
     # 顶层也设置一个 reasoning_summary（兼容某些实现）
     if "reasoning_summary" not in payload:
@@ -168,7 +172,7 @@ async def oai_reasoning_request_interceptor(
     payload["model"] = model[:-len(suffix)]
     
     # 设置 reasoning 参数
-    set_reasoning_parameters(payload, effort)
+    set_reasoning_parameters(payload, effort, engine)
     
     logger.debug(f"[oai_reasoning] Modified payload: model={payload['model']}, "
                  f"reasoning_effort={effort}, reasoning={payload.get('reasoning')}")

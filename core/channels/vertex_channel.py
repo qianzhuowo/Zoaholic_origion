@@ -177,6 +177,30 @@ async def get_access_token(client_email, private_key):
         return response.json()["access_token"]
 
 
+def normalize_vertex_payload(payload: dict) -> dict:
+    """规范化 Vertex Gemini 负载，合并驼峰和下划线字段，处理拼写错误"""
+    # Vertex AI 标准使用 snake_case
+    mapping = {
+        "generationConfig": "generation_config",
+        "generate_config": "generation_config",
+        "safetySettings": "safety_settings",
+        "safety": "safety_settings",
+        "safty": "safety_settings",
+        "systemInstruction": "system_instruction",
+        "toolConfig": "tool_config",
+    }
+
+    for alias, canonical in mapping.items():
+        if alias in payload:
+            value = payload.pop(alias)
+            if canonical not in payload:
+                payload[canonical] = value
+            elif isinstance(value, dict) and isinstance(payload[canonical], dict):
+                payload[canonical].update(value)
+    
+    return payload
+
+
 async def get_vertex_gemini_payload(request, engine, provider, api_key=None):
     """构建 Vertex Gemini API 的请求 payload"""
     headers = {
@@ -334,15 +358,77 @@ async def get_vertex_gemini_payload(request, engine, provider, api_key=None):
         'prompt',
         'size',
         'max_tokens',  # will use max_output_tokens
+        'parallel_tool_calls',
+        'logit_bias',
+        'extra_body',
+        'thinking',
     ]
     generation_config = {}
+
+    def process_tool_parameters(data):
+        if isinstance(data, dict):
+            # 0. 处理逻辑组合符 (OpenAI anyOf/oneOf/allOf [..., null] -> Gemini nullable: True)
+            for key in ["anyOf", "oneOf", "allOf"]:
+                if key in data:
+                    logic_list = data.pop(key)
+                    if isinstance(logic_list, list) and logic_list:
+                        main_item = next((item for item in logic_list if isinstance(item, dict) and item.get("type") and item.get("type") != "null"), logic_list[0])
+                        if isinstance(main_item, dict):
+                            for k, v in main_item.items():
+                                if k not in data:
+                                    data[k] = v
+                        if any(isinstance(item, dict) and item.get("type") == "null" for item in logic_list):
+                            data["nullable"] = True
+
+            # 1. 移除 Gemini 不支持的字段
+            unsupported_fields = [
+                "additionalProperties", "exclusiveMinimum", "exclusiveMaximum", "minLength", "maxLength",
+                "pattern", "$schema", "dependencies", "dependentRequired", "dependentSchemas",
+                "unevaluatedItems", "unevaluatedProperties", "not", "minItems", "maxItems",
+                "uniqueItems", "minimum", "maximum", "multipleOf",
+            ]
+            for field in unsupported_fields:
+                data.pop(field, None)
+
+            # 2. 核心修复：确保 required 中的属性在 properties 中确实存在
+            properties = data.get("properties")
+            required = data.get("required")
+            if isinstance(required, list):
+                if isinstance(properties, dict):
+                    data["required"] = [field for field in required if field in properties]
+                    if not data["required"]:
+                        data.pop("required")
+                else:
+                    data.pop("required", None)
+
+            # 3. 将 'default' 值移入 'description'
+            if "default" in data:
+                default_value = data.pop("default")
+                description = data.get("description", "")
+                data["description"] = f"{description}\nDefault: {default_value}"
+
+            # 4. 递归处理
+            if isinstance(properties, dict):
+                for val in properties.values():
+                    process_tool_parameters(val)
+            items = data.get("items")
+            if isinstance(items, dict):
+                process_tool_parameters(items)
 
     for field, value in request.model_dump(exclude_unset=True).items():
         if field not in miss_fields and value is not None:
             if field == "tools":
+                processed_tools = []
+                for tool in value:
+                    f_def = copy.deepcopy(tool["function"])
+                    f_def.pop("strict", None)
+                    if "parameters" in f_def:
+                        process_tool_parameters(f_def["parameters"])
+                    processed_tools.append(f_def)
+
                 payload.update({
                     "tools": [{
-                        "function_declarations": [tool["function"] for tool in value]
+                        "function_declarations": processed_tools
                     }],
                     "tool_config": {
                         "function_calling_config": {
@@ -414,7 +500,7 @@ async def get_vertex_gemini_payload(request, engine, provider, api_key=None):
             elif all(_model not in request.model.lower() for _model in model_dict.keys()) and "-" not in key and " " not in key:
                 payload[key] = value
 
-    return url, headers, payload
+    return url, headers, normalize_vertex_payload(payload)
 
 
 async def get_vertex_claude_payload(request, engine, provider, api_key=None):

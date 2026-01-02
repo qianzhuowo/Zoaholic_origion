@@ -143,6 +143,75 @@ const SettingsView = {
         rateLimitSection.appendChild(rateLimitCard);
         form.appendChild(rateLimitSection);
 
+        // 超时与心跳设置
+        const timeoutSection = UI.el("div", "flex flex-col gap-4 mt-4");
+        const timeoutHeader = UI.el("div", "inline-flex items-center gap-2 text-md-tertiary text-label-large mb-2");
+        timeoutHeader.appendChild(UI.icon("timer", "text-lg", true));
+        timeoutHeader.appendChild(UI.el("span", "", "超时与心跳"));
+        timeoutSection.appendChild(timeoutHeader);
+
+        const timeoutCard = UI.el("div", "bg-md-surface-container p-4 rounded-md-lg flex flex-col gap-3");
+
+        // 默认超时时间
+        const defaultTimeoutWrap = UI.textField(
+            "默认模型超时时间 (秒)",
+            "默认 600",
+            "number",
+            SettingsView._getModelTimeoutDefault(preferences),
+            {
+                helperText: "等待上游 API 响应的最大时间，对长思考模型建议设置更长"
+            }
+        );
+        defaultTimeoutWrap.input.min = "30";
+        defaultTimeoutWrap.input.max = "3600";
+        defaultTimeoutWrap.input.oninput = (e) => {
+            let val = parseInt(e.target.value) || 600;
+            if (val < 30) val = 30;
+            if (val > 3600) val = 3600;
+            if (!preferences.model_timeout) preferences.model_timeout = {};
+            preferences.model_timeout.default = val;
+        };
+        timeoutCard.appendChild(defaultTimeoutWrap.wrapper);
+
+        // Keepalive 心跳间隔
+        const keepaliveWrap = UI.textField(
+            "Keepalive 心跳间隔 (秒)",
+            "默认 25",
+            "number",
+            SettingsView._getKeepaliveDefault(preferences),
+            {
+                helperText: "流式响应时发送心跳的间隔，防止长时间等待时连接被断开。设为 0 禁用"
+            }
+        );
+        keepaliveWrap.input.min = "0";
+        keepaliveWrap.input.max = "300";
+        keepaliveWrap.input.oninput = (e) => {
+            let val = parseInt(e.target.value);
+            if (isNaN(val) || val < 0) val = 0;
+            if (val > 300) val = 300;
+            if (!preferences.keepalive_interval) preferences.keepalive_interval = {};
+            preferences.keepalive_interval.default = val === 0 ? 99999 : val;
+        };
+        timeoutCard.appendChild(keepaliveWrap.wrapper);
+
+        // 提示信息
+        const timeoutTip = UI.el("div", "text-body-small text-md-on-surface-variant mt-2 p-3 bg-md-surface-container-high rounded-md-md");
+        timeoutTip.innerHTML = `
+            <div class="flex items-start gap-2">
+                <span class="material-symbols-outlined text-md-primary text-base">info</span>
+                <div>
+                    <p class="font-medium">长思考模型建议配置：</p>
+                    <p class="mt-1">• 如果使用 Nginx 反向代理，请确保 <code class="px-1 py-0.5 bg-md-surface rounded">proxy_read_timeout</code> 设置足够长（建议 600s）</p>
+                    <p>• Keepalive 心跳可防止 CDN/代理层因空闲超时断开连接</p>
+                    <p>• 对于 o1/o3/Claude 等思考模型，建议将心跳间隔设为 20-30 秒</p>
+                </div>
+            </div>
+        `;
+        timeoutCard.appendChild(timeoutTip);
+
+        timeoutSection.appendChild(timeoutCard);
+        form.appendChild(timeoutSection);
+
         // 数据保留设置
         const dataSection = UI.el("div", "flex flex-col gap-4 mt-4");
         const dataHeader = UI.el("div", "inline-flex items-center gap-2 text-md-tertiary text-label-large mb-2");
@@ -178,6 +247,34 @@ const SettingsView = {
 
         card.appendChild(form);
         container.appendChild(card);
+    },
+
+    // 获取默认超时时间
+    _getModelTimeoutDefault(preferences) {
+        if (preferences.model_timeout) {
+            if (typeof preferences.model_timeout === 'number') {
+                return String(preferences.model_timeout);
+            }
+            if (preferences.model_timeout.default) {
+                return String(preferences.model_timeout.default);
+            }
+        }
+        return "600";
+    },
+
+    // 获取默认心跳间隔
+    _getKeepaliveDefault(preferences) {
+        if (preferences.keepalive_interval) {
+            if (typeof preferences.keepalive_interval === 'number') {
+                const val = preferences.keepalive_interval;
+                return val >= 99999 ? "0" : String(val);
+            }
+            if (preferences.keepalive_interval.default) {
+                const val = preferences.keepalive_interval.default;
+                return val >= 99999 ? "0" : String(val);
+            }
+        }
+        return "25";  // 推荐默认值
     },
 
     async _saveSettings(preferences) {
@@ -223,9 +320,19 @@ const SettingsView = {
             cleanPreferences.SCHEDULING_ALGORITHM = preferences.SCHEDULING_ALGORITHM;
         }
 
+        // 超时配置
+        if (preferences.model_timeout) {
+            cleanPreferences.model_timeout = preferences.model_timeout;
+        }
+
+        // Keepalive 配置
+        if (preferences.keepalive_interval) {
+            cleanPreferences.keepalive_interval = preferences.keepalive_interval;
+        }
+
         // 保留其他未在界面中编辑的字段
         Object.keys(preferences).forEach(key => {
-            if (!["max_retry_count", "cooldown_period", "rate_limit", "log_raw_data_retention_hours", "SCHEDULING_ALGORITHM"].includes(key)) {
+            if (!["max_retry_count", "cooldown_period", "rate_limit", "log_raw_data_retention_hours", "SCHEDULING_ALGORITHM", "model_timeout", "keepalive_interval"].includes(key)) {
                 cleanPreferences[key] = preferences[key];
             }
         });

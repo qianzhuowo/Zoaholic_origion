@@ -46,6 +46,39 @@ async def format_image_message(image_url: str) -> dict:
 gemini_max_token_65k_models = ["gemini-2.5-pro", "gemini-2.0-pro", "gemini-2.0-flash-thinking", "gemini-2.5-flash"]
 
 
+def normalize_gemini_payload(payload: dict) -> dict:
+    """规范化 Gemini 负载，合并驼峰和下划线字段，处理拼写错误"""
+    # 1. 定义映射关系 (别名 -> 标准键)
+    # Gemini AI Studio 标准使用 camelCase 顶层键
+    mapping = {
+        "generation_config": "generationConfig",
+        "generate_config": "generationConfig",
+        "safety_settings": "safetySettings",
+        "safety": "safetySettings",
+        "safty": "safetySettings",
+        "system_instruction": "systemInstruction",
+        "tool_config": "toolConfig", # 虽然 REST 有时用下划线，但规范化为 camelCase 后下面会处理
+    }
+
+    # 2. 合并字典中的字段
+    for alias, canonical in mapping.items():
+        if alias in payload:
+            value = payload.pop(alias)
+            if canonical not in payload:
+                payload[canonical] = value
+            elif isinstance(value, dict) and isinstance(payload[canonical], dict):
+                # 深度合并字典 (如 generationConfig)
+                payload[canonical].update(value)
+            # 如果是列表等其他类型，以标准键为准，不覆盖
+
+    # 3. 特殊处理 tool_config: Gemini AI Studio 实际倾向于使用 tool_config (snake_case)
+    # 保持与原有代码一致性
+    if "toolConfig" in payload:
+        payload["tool_config"] = payload.pop("toolConfig")
+
+    return payload
+
+
 async def get_gemini_payload(request, engine, provider, api_key=None):
     """构建 Gemini API 的请求 payload"""
     headers = {
@@ -142,8 +175,10 @@ async def get_gemini_payload(request, engine, provider, api_key=None):
 
         # 5. 处理函数响应 (Tool 角色下)
         if msg.role == "tool":
+            # Google AI Studio API 要求函数响应的角色为 "user"
+            # 它将函数执行结果视为由用户/环境提供的上下文
             messages.append({
-                "role": "function",
+                "role": "user",
                 "parts": [{
                     "functionResponse": {
                         "name": msg.name or msg.tool_call_id,
@@ -223,11 +258,30 @@ async def get_gemini_payload(request, engine, provider, api_key=None):
         'chat_template_kwargs',  # OpenAI 特有字段
         'min_p',  # OpenAI 特有字段
         'reasoning_effort',
+        'parallel_tool_calls',
+        'logit_bias',
+        'service_tier',
     ]
     generation_config = {}
 
     def process_tool_parameters(data):
         if isinstance(data, dict):
+            # 0. 处理逻辑组合符 (OpenAI anyOf/oneOf/allOf [..., null] -> Gemini nullable: True)
+            for key in ["anyOf", "oneOf", "allOf"]:
+                if key in data:
+                    logic_list = data.pop(key)
+                    if isinstance(logic_list, list) and logic_list:
+                        # 寻找第一个带 type 的项作为主要定义
+                        main_item = next((item for item in logic_list if isinstance(item, dict) and item.get("type") and item.get("type") != "null"), logic_list[0])
+                        if isinstance(main_item, dict):
+                            # 将主要项的属性合并回当前层，但保留当前层已有的 description 等
+                            for k, v in main_item.items():
+                                if k not in data:
+                                    data[k] = v
+                        # 如果列表中包含 type: null，设置 nullable
+                        if any(isinstance(item, dict) and item.get("type") == "null" for item in logic_list):
+                            data["nullable"] = True
+
             # 1. 移除 Gemini 不支持的字段
             unsupported_fields = [
                 "additionalProperties",
@@ -242,6 +296,13 @@ async def get_gemini_payload(request, engine, provider, api_key=None):
                 "dependentSchemas",
                 "unevaluatedItems",
                 "unevaluatedProperties",
+                "not",
+                "minItems",
+                "maxItems",
+                "uniqueItems",
+                "minimum",
+                "maximum",
+                "multipleOf",
             ]
             for field in unsupported_fields:
                 data.pop(field, None)
@@ -284,7 +345,11 @@ async def get_gemini_payload(request, engine, provider, api_key=None):
                 # 处理每个工具的 function 定义
                 processed_tools = []
                 for tool in value:
-                    function_def = tool["function"]
+                    # 深度克隆以避免修改原始请求对象
+                    function_def = copy.deepcopy(tool["function"])
+                    # 移除 OpenAI 特有的 strict 字段
+                    function_def.pop("strict", None)
+                    
                     if "parameters" in function_def:
                         process_tool_parameters(function_def["parameters"])
 
@@ -424,7 +489,7 @@ async def get_gemini_payload(request, engine, provider, api_key=None):
                 "includeThoughts": True,
             }
 
-    return url, headers, payload
+    return url, headers, normalize_gemini_payload(payload)
 
 
 async def gemini_json_process(response_json):

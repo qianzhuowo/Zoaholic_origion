@@ -712,6 +712,11 @@ async def generate_sse_response(timestamp, model, content=None, tools_id=None, f
     if thought_signature:
         delta_content["thought_signature"] = thought_signature
 
+    # 计算 finish_reason：只有当明确没有内容且没有传入 role 时才设置为 stop
+    # 如果传入了 role，说明是发送角色信息的 chunk，不应该设置 finish_reason
+    has_content = content or reasoning_content or role
+    finish_reason_value = None if has_content else "stop"
+
     sample_data = {
         "id": f"chatcmpl-{random_str}",
         "object": "chat.completion.chunk",
@@ -722,7 +727,7 @@ async def generate_sse_response(timestamp, model, content=None, tools_id=None, f
                 "index": 0,
                 "delta": delta_content,
                 "logprobs": None,
-                "finish_reason": None if content or reasoning_content else "stop"
+                "finish_reason": finish_reason_value
             }
         ],
         "usage": None,

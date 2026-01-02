@@ -344,6 +344,7 @@ async def fetch_responses_stream(client, url, headers, payload, model, timeout):
         input_tokens = 0
         output_tokens = 0
         has_sent_role = False
+        has_sent_content = False  # 追踪是否已发送任何内容
 
         async for chunk in response.aiter_text():
             buffer += chunk
@@ -374,22 +375,36 @@ async def fetch_responses_stream(client, url, headers, payload, model, timeout):
                     event_type = data.get("type", "")
 
                     # 发送角色信息（仅首次）
+                    # 支持更多的内容事件类型
                     if not has_sent_role and event_type in (
                         "response.output_text.delta",
-                        "response.reasoning_summary_text.delta"
+                        "response.reasoning_summary_text.delta",
+                        "response.reasoning.delta",
+                        "response.content_part.delta",
                     ):
                         sse_string = await generate_sse_response(timestamp, model, role="assistant")
                         yield sse_string
                         has_sent_role = True
 
-                    # reasoning summary delta -> reasoning_content
-                    if event_type == "response.reasoning_summary_text.delta":
+                    # reasoning delta（新的 reasoning 事件格式）
+                    if event_type == "response.reasoning.delta":
                         delta = data.get("delta", "")
                         if delta:
                             sse_string = await generate_sse_response(
                                 timestamp, model, reasoning_content=delta
                             )
                             yield sse_string
+                            has_sent_content = True
+
+                    # reasoning summary delta -> reasoning_content
+                    elif event_type == "response.reasoning_summary_text.delta":
+                        delta = data.get("delta", "")
+                        if delta:
+                            sse_string = await generate_sse_response(
+                                timestamp, model, reasoning_content=delta
+                            )
+                            yield sse_string
+                            has_sent_content = True
 
                     # output text delta -> content
                     elif event_type == "response.output_text.delta":
@@ -399,13 +414,16 @@ async def fetch_responses_stream(client, url, headers, payload, model, timeout):
                                 timestamp, model, content=delta
                             )
                             yield sse_string
+                            has_sent_content = True
 
                     # output text done -> finish_reason
+                    # 只有当已发送内容时才发送 stop，避免空响应
                     elif event_type == "response.output_text.done":
-                        sse_string = await generate_sse_response(
-                            timestamp, model, stop="stop"
-                        )
-                        yield sse_string
+                        if has_sent_content:
+                            sse_string = await generate_sse_response(
+                                timestamp, model, stop="stop"
+                            )
+                            yield sse_string
 
                     # function call arguments delta
                     elif event_type == "response.function_call_arguments.delta":
@@ -415,6 +433,7 @@ async def fetch_responses_stream(client, url, headers, payload, model, timeout):
                                 timestamp, model, function_call_content=delta
                             )
                             yield sse_string
+                            has_sent_content = True
 
                     # function call done
                     elif event_type == "response.function_call_arguments.done":
@@ -425,12 +444,19 @@ async def fetch_responses_stream(client, url, headers, payload, model, timeout):
                         )
                         yield sse_string
 
-                    # response completed -> 提取 usage
+                    # response completed -> 提取 usage，同时确保发送 stop
                     elif event_type == "response.completed":
                         response_data = data.get("response", {})
                         usage = response_data.get("usage", {})
                         input_tokens = usage.get("input_tokens", 0)
                         output_tokens = usage.get("output_tokens", 0)
+                        
+                        # 如果还没发送 stop，在这里发送
+                        if has_sent_content:
+                            sse_string = await generate_sse_response(
+                                timestamp, model, stop="stop"
+                            )
+                            yield sse_string
 
         # 发送 usage 信息
         if input_tokens or output_tokens:
