@@ -399,10 +399,7 @@ async def get_gemini_payload(request, engine, provider, api_key=None):
 
     payload["generationConfig"] = generation_config
     if "maxOutputTokens" not in generation_config:
-        if any(pro_model in original_model for pro_model in gemini_max_token_65k_models):
-            payload["generationConfig"]["maxOutputTokens"] = 65536
-        else:
-            payload["generationConfig"]["maxOutputTokens"] = 8192
+        payload["generationConfig"]["maxOutputTokens"] = 32768
 
         if ("-image" in original_model):
             payload["generationConfig"]["responseModalities"] = [
@@ -673,6 +670,13 @@ async def fetch_gemini_response_stream(client, url, headers, payload, model, tim
 
                 # https://ai.google.dev/api/generate-content?hl=zh-cn#FinishReason
                 is_thinking, reasoning_content, content, image_base64, function_call_name, function_full_response, finishReason, blockReason, promptTokenCount, candidatesTokenCount, totalTokenCount, thought_signature = await gemini_json_process(response_json)
+                
+                # 调试日志：记录每个 chunk 的关键信息
+                from ..log_config import logger
+                if image_base64:
+                    logger.info(f"[Gemini] image_base64 received, length={len(image_base64)}, finishReason={finishReason}")
+                if finishReason:
+                    logger.info(f"[Gemini] finishReason={finishReason}, has_image={bool(image_base64)}, content_len={len(content) if content else 0}")
 
                 if is_thinking:
                     sse_string = await generate_sse_response(timestamp, model, reasoning_content=reasoning_content, thought_signature=thought_signature)
@@ -699,10 +703,12 @@ async def fetch_gemini_response_stream(client, url, headers, payload, model, tim
                 if parts_json == "[]" or (blockReason and blockReason != "STOP"):
                     yield {"error": f"Gemini Blocked: {blockReason or 'Empty Response'}", "status_code": 400, "details": response_json}
                     return
-                elif finishReason and finishReason != "STOP":
+                elif finishReason and finishReason not in ["STOP", "MAX_TOKENS"]:
+                    # 非正常结束原因（如 SAFETY, RECITATION 等）
                     yield {"error": f"Gemini Finish Reason: {finishReason}", "status_code": 400, "details": response_json}
                     return
                 elif finishReason:
+                    # 正常结束（STOP 或 MAX_TOKENS）
                     sse_string = await generate_sse_response(timestamp, model, stop="stop")
                     yield sse_string
                     break

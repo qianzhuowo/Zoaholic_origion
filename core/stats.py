@@ -10,6 +10,7 @@
 """
 
 import os
+import asyncio
 from asyncio import Semaphore
 from datetime import datetime, timedelta, timezone
 from typing import Dict, List, Optional, Any
@@ -21,6 +22,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.log_config import logger
 from db import Base, RequestStat, ChannelStat, db_engine, async_session, DISABLE_DATABASE
+
+# SQLite 写入重试配置
+SQLITE_MAX_RETRIES = 3
+SQLITE_RETRY_DELAY = 0.5  # 初始重试延迟（秒）
 
 is_debug = bool(os.getenv("DEBUG", False))
 
@@ -233,12 +238,13 @@ async def update_stats(current_info: dict, app=None, get_model_prices_func=None)
     except Exception:
         pass
 
-    try:
-        # 等待获取数据库访问权限
-        async with db_semaphore:
-            async with async_session() as session:
-                async with session.begin():
-                    try:
+    # 使用重试机制写入数据库
+    for attempt in range(SQLITE_MAX_RETRIES):
+        try:
+            # 等待获取数据库访问权限
+            async with db_semaphore:
+                async with async_session() as session:
+                    async with session.begin():
                         columns = [column.key for column in RequestStat.__table__.columns]
                         filtered_info = {k: v for k, v in current_info.items() if k in columns}
 
@@ -250,23 +256,30 @@ async def update_stats(current_info: dict, app=None, get_model_prices_func=None)
                         new_request_stat = RequestStat(**filtered_info)
                         session.add(new_request_stat)
                         await session.commit()
-                    except Exception as e:
-                        await session.rollback()
-                        logger.error(f"Error updating stats: {str(e)}")
-                        if is_debug:
-                            import traceback
-                            traceback.print_exc()
 
-        # 检查付费 API 密钥状态更新
-        check_key = current_info.get("api_key")
-        if app and check_key and hasattr(app.state, 'paid_api_keys_states'):
-            if check_key in app.state.paid_api_keys_states and current_info.get("total_tokens", 0) > 0:
-                await update_paid_api_keys_states(app, check_key)
-    except Exception as e:
-        logger.error(f"Error acquiring database lock: {str(e)}")
-        if is_debug:
-            import traceback
-            traceback.print_exc()
+            # 检查付费 API 密钥状态更新
+            check_key = current_info.get("api_key")
+            if app and check_key and hasattr(app.state, 'paid_api_keys_states'):
+                if check_key in app.state.paid_api_keys_states and current_info.get("total_tokens", 0) > 0:
+                    await update_paid_api_keys_states(app, check_key)
+            return  # 成功后直接返回
+
+        except Exception as e:
+            error_str = str(e).lower()
+            is_lock_error = 'database is locked' in error_str or 'busy' in error_str
+            
+            if is_lock_error and attempt < SQLITE_MAX_RETRIES - 1:
+                # 数据库锁定，等待后重试
+                delay = SQLITE_RETRY_DELAY * (2 ** attempt)  # 指数退避
+                logger.warning(f"Database locked, retrying in {delay}s (attempt {attempt + 1}/{SQLITE_MAX_RETRIES})")
+                await asyncio.sleep(delay)
+            else:
+                # 最后一次重试失败或非锁定错误
+                logger.error(f"Error updating stats: {str(e)}")
+                if is_debug:
+                    import traceback
+                    traceback.print_exc()
+                break
 
 
 async def update_channel_stats(request_id, provider, model, api_key, success, provider_api_key: str = None):
@@ -274,11 +287,12 @@ async def update_channel_stats(request_id, provider, model, api_key, success, pr
     if DISABLE_DATABASE:
         return
 
-    try:
-        async with db_semaphore:
-            async with async_session() as session:
-                async with session.begin():
-                    try:
+    # 使用重试机制写入数据库
+    for attempt in range(SQLITE_MAX_RETRIES):
+        try:
+            async with db_semaphore:
+                async with async_session() as session:
+                    async with session.begin():
                         channel_stat = ChannelStat(
                             request_id=request_id,
                             provider=provider,
@@ -289,17 +303,22 @@ async def update_channel_stats(request_id, provider, model, api_key, success, pr
                         )
                         session.add(channel_stat)
                         await session.commit()
-                    except Exception as e:
-                        await session.rollback()
-                        logger.error(f"Error updating channel stats: {str(e)}")
-                        if is_debug:
-                            import traceback
-                            traceback.print_exc()
-    except Exception as e:
-        logger.error(f"Error acquiring database lock: {str(e)}")
-        if is_debug:
-            import traceback
-            traceback.print_exc()
+            return  # 成功后直接返回
+
+        except Exception as e:
+            error_str = str(e).lower()
+            is_lock_error = 'database is locked' in error_str or 'busy' in error_str
+            
+            if is_lock_error and attempt < SQLITE_MAX_RETRIES - 1:
+                delay = SQLITE_RETRY_DELAY * (2 ** attempt)
+                logger.warning(f"Database locked (channel stats), retrying in {delay}s (attempt {attempt + 1}/{SQLITE_MAX_RETRIES})")
+                await asyncio.sleep(delay)
+            else:
+                logger.error(f"Error updating channel stats: {str(e)}")
+                if is_debug:
+                    import traceback
+                    traceback.print_exc()
+                break
 
 
 # ============== Token 使用量查询 ==============

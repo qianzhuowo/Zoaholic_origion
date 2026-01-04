@@ -355,8 +355,25 @@ async def _fetch_passthrough_response(client, url, headers, payload, timeout):
     
     直接转发上游 JSON 响应，不做任何格式转换
     """
+    import time as _time
+    t0 = _time.time()
+    
     json_payload = await asyncio.to_thread(json.dumps, payload)
-    response = await client.post(url, headers=headers, content=json_payload, timeout=timeout)
+    t1 = _time.time()
+    logger.debug(f"[passthrough] json.dumps took {t1-t0:.3f}s")
+    
+    # 使用与流式请求相同的超时配置
+    # 避免整数超时覆盖客户端的精细超时设置
+    request_timeout = httpx.Timeout(
+        connect=15.0,
+        read=timeout,  # 使用传入的超时作为读取超时
+        write=60.0,
+        pool=10.0,
+    )
+    
+    response = await client.post(url, headers=headers, content=json_payload, timeout=request_timeout)
+    t2 = _time.time()
+    logger.debug(f"[passthrough] POST request took {t2-t1:.3f}s, status={response.status_code}")
     
     error_message = await check_response(response, "passthrough_non_stream")
     if error_message:
@@ -364,6 +381,9 @@ async def _fetch_passthrough_response(client, url, headers, payload, timeout):
         return
     
     response_bytes = await response.aread()
+    t3 = _time.time()
+    logger.debug(f"[passthrough] aread() took {t3-t2:.3f}s, size={len(response_bytes)} bytes")
+    
     yield response_bytes.decode("utf-8")
 
 
@@ -373,8 +393,6 @@ async def _passthrough_error_wrapper(generator, channel_id):
     
     只检测 HTTP 错误（由 check_response 完成），不做 JSON 解析
     直接透传所有内容
-    
-    注意：透传模式下对空响应更宽容，只有真正的错误响应才会触发异常
     """
     from time import time as time_now
     start_time = time_now()
@@ -423,48 +441,16 @@ async def _passthrough_error_wrapper(generator, channel_id):
             
             yield chunk
     
-    # 获取第一个 chunk 以计算首次响应时间
-    # 透传模式下，跳过空白 chunk，寻找第一个有效内容
+    # 透传模式：直接获取第一个 chunk，不做额外过滤
+    # SSE 流的内容（如 event:, data:）都是有效内容，不应该被跳过
     gen = wrapped()
-    first = None
-    empty_chunks = []  # 保存遇到的空 chunk，以便后续输出
-    
     try:
-        async for chunk in gen:
-            # 跳过空白字符串和 keepalive 消息
-            if isinstance(chunk, str):
-                stripped = chunk.strip()
-                if not stripped or stripped.startswith(":"):
-                    empty_chunks.append(chunk)
-                    continue
-            
-            # 找到第一个有效 chunk
-            first = chunk
-            if first_response_time is None:
-                first_response_time = time_now() - start_time
-            break
+        first = await gen.__anext__()
     except StopAsyncIteration:
-        pass
-    
-    # 如果没有任何有效内容
-    if first is None:
-        # 透传模式下，如果有空白 chunks（如 keepalive），返回它们
-        if empty_chunks:
-            async def empty_gen():
-                for chunk in empty_chunks:
-                    yield chunk
-            return empty_gen(), first_response_time or (time_now() - start_time)
-        
-        # 真正的空响应
         raise HTTPException(status_code=502, detail="Upstream server returned an empty response.")
     
     async def final_gen():
-        # 先输出之前跳过的空 chunks
-        for chunk in empty_chunks:
-            yield chunk
-        # 输出第一个有效 chunk
         yield first
-        # 继续输出剩余内容
         async for chunk in gen:
             yield chunk
     

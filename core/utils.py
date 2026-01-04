@@ -700,22 +700,90 @@ end_of_line = "\n\n"
 # end_of_line = "\r"
 # end_of_line = "\n"
 
-async def generate_sse_response(timestamp, model, content=None, tools_id=None, function_call_name=None, function_call_content=None, role=None, total_tokens=0, prompt_tokens=0, completion_tokens=0, reasoning_content=None, stop=None, thought_signature=None):
+async def generate_sse_response(
+    timestamp,
+    model,
+    content=None,
+    tools_id=None,
+    function_call_name=None,
+    function_call_content=None,
+    role=None,
+    total_tokens=0,
+    prompt_tokens=0,
+    completion_tokens=0,
+    reasoning_content=None,
+    stop=None,
+    thought_signature=None
+):
+    """
+    生成 OpenAI Chat Completions 格式的 SSE 响应
+    
+    Args:
+        timestamp: 时间戳
+        model: 模型名称
+        content: 文本内容
+        tools_id: 工具调用 ID
+        function_call_name: 函数名称
+        function_call_content: 函数参数内容
+        role: 角色（首个 chunk 发送）
+        total_tokens: 总 token 数（用于 usage chunk）
+        prompt_tokens: 输入 token 数
+        completion_tokens: 输出 token 数
+        reasoning_content: 推理内容
+        stop: 停止原因（如 "stop", "tool_calls"）
+        thought_signature: Gemini 思考签名
+    """
     random.seed(timestamp)
     random_str = ''.join(random.choices(string.ascii_letters + string.digits, k=29))
 
-    delta_content = {"role": "assistant", "content": content} if content else {}
-    if reasoning_content:
-        delta_content = {"role": "assistant", "content": "", "reasoning_content": reasoning_content}
+    # 构建 delta 内容（按优先级处理，互斥情况）
+    delta_content = {}
+    finish_reason = None
     
-    # 注入签名信息到 delta
-    if thought_signature:
-        delta_content["thought_signature"] = thought_signature
-
-    # 计算 finish_reason：只有当明确没有内容且没有传入 role 时才设置为 stop
-    # 如果传入了 role，说明是发送角色信息的 chunk，不应该设置 finish_reason
-    has_content = content or reasoning_content or role
-    finish_reason_value = None if has_content else "stop"
+    # 优先级 1：显式的停止信号
+    if stop:
+        delta_content = {}
+        finish_reason = stop
+    # 优先级 2：usage chunk（无 choices）
+    elif total_tokens:
+        # usage chunk 会清空 choices，不需要设置 delta
+        pass
+    # 优先级 3：角色声明（首个 chunk）
+    elif role and not content and not function_call_content and not function_call_name:
+        delta_content = {"role": role, "content": ""}
+    # 优先级 4：工具调用开始（有 tools_id 和 function_call_name）
+    elif tools_id and function_call_name:
+        tc = {
+            "index": 0,
+            "id": tools_id,
+            "type": "function",
+            "function": {"name": function_call_name, "arguments": ""}
+        }
+        if thought_signature:
+            tc["extra_content"] = {"google": {"thoughtSignature": thought_signature}}
+        delta_content = {"tool_calls": [tc]}
+    # 优先级 5：工具调用参数流式输出
+    elif function_call_content is not None:
+        # 确保 arguments 是字符串（OpenAI 格式要求）
+        if isinstance(function_call_content, dict):
+            args_str = json.dumps(function_call_content, ensure_ascii=False)
+        else:
+            args_str = str(function_call_content) if function_call_content else ""
+        delta_content = {"tool_calls": [{"index": 0, "function": {"arguments": args_str}}]}
+    # 优先级 6：推理内容
+    elif reasoning_content:
+        delta_content = {"role": "assistant", "content": "", "reasoning_content": reasoning_content}
+        if thought_signature:
+            delta_content["thought_signature"] = thought_signature
+    # 优先级 7：普通文本内容
+    elif content:
+        delta_content = {"role": "assistant", "content": content}
+        if thought_signature:
+            delta_content["thought_signature"] = thought_signature
+    # 优先级 8：空 chunk（无内容）→ 结束信号
+    else:
+        delta_content = {}
+        finish_reason = "stop"
 
     sample_data = {
         "id": f"chatcmpl-{random_str}",
@@ -727,32 +795,23 @@ async def generate_sse_response(timestamp, model, content=None, tools_id=None, f
                 "index": 0,
                 "delta": delta_content,
                 "logprobs": None,
-                "finish_reason": finish_reason_value
+                "finish_reason": finish_reason
             }
         ],
         "usage": None,
         "system_fingerprint": "fp_d576307f90",
     }
-    if function_call_content:
-        sample_data["choices"][0]["delta"] = {"tool_calls":[{"index":0,"function":{"arguments": function_call_content}}]}
-    if tools_id and function_call_name:
-        tc = {"index": 0, "id": tools_id, "type": "function", "function": {"name": function_call_name, "arguments": ""}}
-        if thought_signature:
-            tc["extra_content"] = {"google": {"thoughtSignature": thought_signature}}
-        sample_data["choices"][0]["delta"] = {"tool_calls": [tc]}
-    if role:
-        sample_data["choices"][0]["delta"] = {"role": role, "content": ""}
+    
+    # usage chunk 特殊处理：清空 choices，设置 usage
     if total_tokens:
-        sample_data["usage"] = {"prompt_tokens": prompt_tokens, "completion_tokens": completion_tokens, "total_tokens": total_tokens}
+        sample_data["usage"] = {
+            "prompt_tokens": prompt_tokens,
+            "completion_tokens": completion_tokens,
+            "total_tokens": total_tokens
+        }
         sample_data["choices"] = []
-    if stop:
-        sample_data["choices"][0]["delta"] = {}
-        sample_data["choices"][0]["finish_reason"] = stop
 
     json_data = await asyncio.to_thread(json.dumps, sample_data, ensure_ascii=False)
-    # print("json_data", json.dumps(sample_data, indent=4, ensure_ascii=False))
-
-    # 构建SSE响应
     sse_response = f"data: {json_data}" + end_of_line
 
     return sse_response

@@ -449,10 +449,7 @@ async def get_vertex_gemini_payload(request, engine, provider, api_key=None):
 
     payload["generationConfig"] = generation_config
     if "max_output_tokens" not in generation_config:
-        if any(pro_model in original_model for pro_model in gemini_max_token_65k_models):
-            payload["generationConfig"]["max_output_tokens"] = 65535
-        else:
-            payload["generationConfig"]["max_output_tokens"] = 8192
+        payload["generationConfig"]["max_output_tokens"] = 32768
 
     if "gemini-2.5" in original_model:
         # 从请求模型名中检测思考预算设置
@@ -607,12 +604,7 @@ async def get_vertex_claude_payload(request, engine, provider, api_key=None):
         else:
             message_index = message_index + 1
 
-    if "claude-3-7-sonnet" in original_model:
-        max_tokens = 20000
-    elif "claude-3-5-sonnet" in original_model:
-        max_tokens = 8192
-    else:
-        max_tokens = 4096
+    max_tokens = 32768
 
     payload = {
         "anthropic_version": "vertex-2023-10-16",

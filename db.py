@@ -95,7 +95,9 @@ if not DISABLE_DATABASE:
             try:
                 cursor = dbapi_connection.cursor()
                 cursor.execute("PRAGMA journal_mode=WAL;")
-                cursor.execute("PRAGMA busy_timeout = 5000;")
+                cursor.execute("PRAGMA busy_timeout = 30000;")  # 30 seconds
+                cursor.execute("PRAGMA synchronous = NORMAL;")  # Faster writes
+                cursor.execute("PRAGMA cache_size = -64000;")  # 64MB cache
             except Exception as e:
                 logger.error(f"Failed to set PRAGMA for SQLite: {e}")
             finally:

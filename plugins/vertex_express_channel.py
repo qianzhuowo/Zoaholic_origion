@@ -368,10 +368,7 @@ async def get_vertex_express_payload(request, engine, provider, api_key=None):
 
     # 设置默认的 maxOutputTokens
     if "maxOutputTokens" not in generation_config:
-        if any(pro_model in original_model for pro_model in GEMINI_MAX_TOKEN_65K_MODELS):
-            payload["generationConfig"]["maxOutputTokens"] = 65536
-        else:
-            payload["generationConfig"]["maxOutputTokens"] = 8192
+        payload["generationConfig"]["maxOutputTokens"] = 32768
 
     # 处理图片生成模型
     if "-image" in original_model:
