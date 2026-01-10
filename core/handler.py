@@ -871,6 +871,21 @@ class ModelRequestHandler:
                 elif isinstance(e, httpx.RemoteProtocolError):
                     status_code = 502  # Bad Gateway
                     error_message = "Remote protocol error"
+                    
+                    # 检测 HTTP/2 StreamReset 错误，自动重置连接池
+                    error_str = str(e)
+                    if "StreamReset" in error_str or "stream_id" in error_str:
+                        try:
+                            # 从 provider 的 base_url 提取 host 并重置连接
+                            from urllib.parse import urlparse
+                            base_url = provider.get('base_url', '')
+                            if base_url:
+                                host = urlparse(base_url).netloc
+                                if host and hasattr(self.app.state, 'client_manager'):
+                                    await self.app.state.client_manager.reset_client(host)
+                                    logger.info(f"Auto-reset HTTP/2 connection for {host} due to StreamReset error")
+                        except Exception as reset_err:
+                            logger.warning(f"Failed to auto-reset connection: {reset_err}")
                 elif isinstance(e, httpx.LocalProtocolError):
                     status_code = 502  # Bad Gateway
                     error_message = "Local protocol error"

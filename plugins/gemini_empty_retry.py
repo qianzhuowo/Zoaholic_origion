@@ -500,7 +500,23 @@ async def gemini_empty_retry_request_interceptor(
         max_retries = parse_retry_options(options)
         
         # 获取模型名称，判断是否为图像生成模型
-        model = payload.get("model", "")
+        # 注意：Gemini 格式的 payload 中没有 model 字段（model 在 URL 中）
+        # 需要从原始请求对象获取，或者从 URL 中解析
+        model = ""
+        
+        # 方式1：从 request 对象获取（OpenAI 格式的原始请求）
+        if hasattr(request, "model") and request.model:
+            model = request.model
+        # 方式2：从 payload 获取（某些情况下可能有）
+        elif isinstance(payload, dict) and payload.get("model"):
+            model = payload.get("model", "")
+        # 方式3：从 URL 中解析（Gemini 格式：/models/{model}:generateContent）
+        elif url:
+            import re
+            match = re.search(r"/models/([^/:]+)", url)
+            if match:
+                model = match.group(1)
+        
         is_image_model = is_image_generation_model(model)
         
         # 在 request_info 中设置标记
@@ -510,7 +526,7 @@ async def gemini_empty_retry_request_interceptor(
         current_info["_gemini_empty_retry_state"] = {"retry_count": 0}
         
         logger.debug(
-            f"[gemini_empty_retry] Enabled for request, "
+            f"[gemini_empty_retry] Enabled for request, model={model}, "
             f"max_retries={max_retries}, is_image_model={is_image_model}"
         )
     except Exception as e:

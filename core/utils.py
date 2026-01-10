@@ -1030,7 +1030,7 @@ def parse_json_safely(json_str):
             # 两种方法都失败，抛出异常
             raise Exception(f"无法解析JSON字符串: {e}, {json_str}")
 
-async def upload_image_to_0x0st(base64_image: str):
+async def upload_image_to_0x0st(base64_image: str, max_size_mb: float = 10.0):
     """
     Uploads a base64 encoded image to freeimage.host.
     
@@ -1039,9 +1039,10 @@ async def upload_image_to_0x0st(base64_image: str):
 
     Args:
         base64_image: The base64 encoded image string.
+        max_size_mb: Maximum image size in MB. Larger images will be compressed.
 
     Returns:
-        The URL of the uploaded image, or original base64_image if upload fails.
+        The URL of the uploaded image, or None if upload fails.
     """
     # 提取纯 base64 数据（去除 data URI 前缀，如 "data:image/png;base64,"）
     if "," in base64_image:
@@ -1049,13 +1050,52 @@ async def upload_image_to_0x0st(base64_image: str):
     else:
         base64_data = base64_image
 
+    # 检查图片大小
+    image_size_bytes = len(base64_data) * 3 // 4  # base64 编码后大约增加 33%
+    image_size_mb = image_size_bytes / (1024 * 1024)
+    
+    logger.info(f"[upload_image] Original size: {image_size_mb:.2f} MB")
+    
+    # 如果图片太大，尝试压缩
+    if image_size_mb > max_size_mb:
+        try:
+            logger.info(f"[upload_image] Image too large ({image_size_mb:.2f} MB), compressing...")
+            image_bytes = base64.b64decode(base64_data)
+            img = Image.open(io.BytesIO(image_bytes))
+            
+            # 计算缩放比例
+            scale = (max_size_mb / image_size_mb) ** 0.5
+            new_width = int(img.width * scale)
+            new_height = int(img.height * scale)
+            
+            # 缩放图片
+            img = img.resize((new_width, new_height), Image.Resampling.LANCZOS)
+            
+            # 转换为 JPEG 格式以减小体积
+            output = io.BytesIO()
+            if img.mode in ('RGBA', 'LA', 'P'):
+                # 有透明通道的转为 RGB
+                img = img.convert('RGB')
+            img.save(output, format='JPEG', quality=85, optimize=True)
+            base64_data = base64.b64encode(output.getvalue()).decode('utf-8')
+            
+            new_size_mb = len(base64_data) * 3 // 4 / (1024 * 1024)
+            logger.info(f"[upload_image] Compressed to {new_size_mb:.2f} MB, new size: {new_width}x{new_height}")
+        except Exception as e:
+            logger.error(f"[upload_image] Compression failed: {e}")
+            # 压缩失败，继续尝试上传原图
+
     # freeimage.host 公共 guest API key
     FREEIMAGE_API_KEY = "6d207e02198a847aa98d0a2a901485a5"
     
-    async with httpx.AsyncClient() as client:
+    # 增加超时时间，大文件需要更长时间
+    timeout = httpx.Timeout(connect=10.0, read=120.0, write=120.0, pool=10.0)
+    
+    async with httpx.AsyncClient(timeout=timeout) as client:
         try:
             # freeimage.host API: POST https://freeimage.host/api/1/upload
             # 参数: key (API key), source (base64 或文件), format (json/redirect/txt)
+            logger.info(f"[upload_image] Uploading to freeimage.host...")
             response = await client.post(
                 "https://freeimage.host/api/1/upload",
                 data={
@@ -1063,7 +1103,6 @@ async def upload_image_to_0x0st(base64_image: str):
                     'source': base64_data,
                     'format': 'json',
                 },
-                timeout=30.0
             )
             response.raise_for_status()
             result = response.json()
@@ -1071,17 +1110,20 @@ async def upload_image_to_0x0st(base64_image: str):
                 # 返回直接图片链接
                 url = result.get('image', {}).get('url')
                 if url:
+                    logger.info(f"[upload_image] Upload successful: {url}")
                     return url
-            logger.error(f"freeimage.host 上传失败: {result}")
+            logger.error(f"[upload_image] freeimage.host 上传失败: {result}")
+        except httpx.TimeoutException as e:
+            logger.error(f"[upload_image] 上传超时: {e}")
         except httpx.RequestError as e:
-            logger.error(f"请求 freeimage.host 时出错: {e}")
+            logger.error(f"[upload_image] 请求 freeimage.host 时出错: {e}")
         except httpx.HTTPStatusError as e:
-            logger.error(f"上传图片到 freeimage.host 时发生 HTTP 错误: {e.response.status_code}, {e.response.text}")
+            logger.error(f"[upload_image] 上传图片到 freeimage.host 时发生 HTTP 错误: {e.response.status_code}, {e.response.text[:500]}")
         except Exception as e:
-            logger.error(f"freeimage.host 上传异常: {e}")
+            logger.error(f"[upload_image] freeimage.host 上传异常: {e}")
     
-    # 上传失败，返回原始 base64
-    return base64_image
+    # 上传失败，返回 None（而不是原始 base64，避免返回超大响应）
+    return None
 
 if __name__ == "__main__":
     provider = {

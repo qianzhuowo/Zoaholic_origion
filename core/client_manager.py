@@ -89,3 +89,35 @@ class ClientManager:
         for client in self.clients.values():
             await client.aclose()
         self.clients.clear()
+
+    async def reset_client(self, host: str) -> bool:
+        """
+        重置指定 host 的客户端连接
+        
+        用于解决 HTTP/2 连接老化导致的 StreamReset 错误
+        
+        Args:
+            host: 要重置的 host
+            
+        Returns:
+            是否找到并重置了客户端
+        """
+        keys_to_remove = [k for k in self.clients.keys() if host in k]
+        if not keys_to_remove:
+            return False
+        
+        for key in keys_to_remove:
+            client = self.clients.pop(key)
+            await client.aclose()
+        return True
+
+    async def reset_all_clients(self) -> int:
+        """
+        重置所有客户端连接（不需要重启服务）
+        
+        Returns:
+            重置的客户端数量
+        """
+        count = len(self.clients)
+        await self.close()
+        return count
