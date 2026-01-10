@@ -22,6 +22,7 @@ from ..utils import (
     safe_get,
     get_model_dict,
     get_base64_image,
+    get_tools_mode,
     generate_sse_response,
     end_of_line,
     parse_json_safely,
@@ -271,17 +272,22 @@ async def get_vertex_gemini_payload(request, engine, provider, api_key=None):
             tool_calls = msg.tool_calls
 
         if tool_calls:
-            tool_call = tool_calls[0]
-            function_arguments = {
-                "functionCall": {
-                    "name": tool_call.function.name,
-                    "args": json.loads(tool_call.function.arguments)
+            tools_mode = get_tools_mode(provider)
+            # 根据 tools_mode 决定处理多少个工具调用
+            calls_to_process = tool_calls if tools_mode == "parallel" else tool_calls[:1]
+            parts = []
+            for tool_call in calls_to_process:
+                function_arguments = {
+                    "functionCall": {
+                        "name": tool_call.function.name,
+                        "args": json.loads(tool_call.function.arguments)
+                    }
                 }
-            }
+                parts.append(function_arguments)
             messages.append(
                 {
                     "role": "model",
-                    "parts": [function_arguments]
+                    "parts": parts
                 }
             )
         elif msg.role == "tool":
@@ -554,14 +560,17 @@ async def get_vertex_claude_payload(request, engine, provider, api_key=None):
             tool_call_id = msg.tool_call_id
 
         if tool_calls:
+            tools_mode = get_tools_mode(provider)
             tool_calls_list = []
-            tool_call = tool_calls[0]
-            tool_calls_list.append({
-                "type": "tool_use",
-                "id": tool_call.id,
-                "name": tool_call.function.name,
-                "input": json.loads(tool_call.function.arguments),
-            })
+            # 根据 tools_mode 决定处理多少个工具调用
+            calls_to_process = tool_calls if tools_mode == "parallel" else tool_calls[:1]
+            for tool_call in calls_to_process:
+                tool_calls_list.append({
+                    "type": "tool_use",
+                    "id": tool_call.id,
+                    "name": tool_call.function.name,
+                    "input": json.loads(tool_call.function.arguments),
+                })
             messages.append({"role": msg.role, "content": tool_calls_list})
         elif tool_call_id:
             messages.append({"role": "user", "content": [{
@@ -631,7 +640,8 @@ async def get_vertex_claude_payload(request, engine, provider, api_key=None):
         if field not in miss_fields and value is not None:
             payload[field] = value
 
-    if request.tools and provider.get("tools"):
+    tools_mode = get_tools_mode(provider)
+    if request.tools and tools_mode != "none":
         tools = []
         for tool in request.tools:
             json_tool = await gpt2claude_tools_json(tool.dict()["function"])
@@ -654,7 +664,7 @@ async def get_vertex_claude_payload(request, engine, provider, api_key=None):
                         "type": "any"
                     }
 
-    if provider.get("tools") is False:
+    if tools_mode == "none":
         payload.pop("tools", None)
         payload.pop("tool_choice", None)
 
