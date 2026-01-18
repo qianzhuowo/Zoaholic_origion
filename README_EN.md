@@ -1,51 +1,40 @@
 # Zoaholic
 
-Zoaholic is a unified LLM API gateway built on top of the excellent open‑source project uni-api.
+<p align="center">
+  <img src="frontend/public/zoaholic.png" alt="Zoaholic Logo" width="200"/>
+</p>
 
-It is designed for self‑hosted, power‑user scenarios where you:
-- want a simple, single API entrypoint that speaks OpenAI compatible format;
-- need to aggregate many upstream providers (OpenAI, Anthropic, Gemini, Vertex, Azure, AWS, etc.);
-- prefer a lightweight integrated web UI instead of a heavy commercial control panel.
+Zoaholic is a next-generation LLM API gateway built on top of the excellent open‑source project uni-api.
 
-Compared with upstream uni-api, Zoaholic focuses on:
-- a built‑in minimal web frontend for configuration and debugging;
-- a clearer plugin-based channel system (extensible providers via Python plugins);
-- opinionated defaults and simplified setup for personal deployment.
+While the original uni-api forces all traffic into the OpenAI format, Zoaholic introduces a **Multi-Dialect Architecture**. It natively understands and translates between the OpenAI (`/v1/chat/completions`), Anthropic Claude (`/v1/messages`), and Google Gemini (`/v1beta/...`) protocols.
 
-Note: Zoaholic closely tracks upstream uni-api; most of the protocol, configuration and behavior are intentionally kept compatible so existing api.yaml files continue to work with minimal or zero changes.
+Combined with a new dynamic Python plugin system and a modern React frontend, Zoaholic is designed for self‑hosted, power‑user scenarios where flexibility and protocol compatibility are paramount.
 
 ## Features
 
-High level features (most inherited from uni-api, with some Zoaholic additions):
+### 🗣️ Multi-Dialect Gateway
+Send requests in your preferred format, and Zoaholic will automatically translate the prompt format, tool calls, and streaming responses (SSE) to match the upstream provider. 
+- Example: Send a Claude API request to an OpenAI GPT-4o backend, and receive a Claude-formatted response.
 
-- Unified gateway in front of multiple LLM providers, exposing standard OpenAI style endpoints:
-  - /v1/chat/completions
-  - /v1/images/generations
-  - /v1/audio/transcriptions
-  - /v1/embeddings
-  - /v1/moderations
-- Rich provider support (depending on your api.yaml): OpenAI, Anthropic, Gemini, Vertex AI, Azure OpenAI, AWS Bedrock, xAI, Cohere, Groq, Cloudflare Workers AI, OpenRouter and more.
-- Per‑provider and per‑model routing with:
-  - fixed priority, round‑robin, weighted_round_robin, lottery and smart_round_robin scheduling;
-  - automatic retry and per‑channel cooldown;
-  - per‑API‑key rate limiting, including token-per-request (tpr) limits.
-- Model aliasing and renaming (e.g. mapping long provider model IDs to short friendly names).
-- Optional OpenAI moderation‑style content checks before requests go out.
-- Optional global and per‑provider proxies and custom headers.
-- Optional cost tracking and per‑API‑key credits when database is enabled.
-- Built‑in simple web frontend to:
-  - view available models and channels;
-  - edit api.yaml style configuration via the browser;
-  - inspect basic statistics and token usage.
+### 🔌 Dynamic Plugin System
+Extend Zoaholic's capabilities without touching the core codebase via Python interceptors.
+- **Claude Thinking Plugin**: Automatically injects `<thinking>` pre-fills for models ending in `-thinking`, adjusts max tokens, and elegantly splits the streaming response into `reasoning_content` and standard `content`.
+- Add new channels, dialects, and safety filters on the fly.
 
-## Quick start (high level)
+### 🖥️ Modern React Console
+A built-in Material Design UI powered by Vite, React, Tailwind CSS, and Radix UI. Manage channels, test models, and monitor API traffic locally at `http://localhost:8000/`.
 
-Zoaholic uses the same api.yaml configuration format as uni-api. At minimum you need:
+### ⚖️ Enterprise-grade Load Balancing
+Inherits the robust routing core from uni-api:
+- Algorithms: Fixed priority, Round-robin, Weighted, Lottery, and Smart routing.
+- High Availability: Automatic retries, channel cooldowns, and independent model timeout handling.
+- Fine-grained per-API-key rate limiting.
 
-1. An api.yaml describing providers and api_keys.
-2. A running Zoaholic server pointed at that file (or a CONFIG_URL that serves it).
+## Quick Start
 
-A minimal example api.yaml looks like:
+Zoaholic uses a single `api.yaml` for configuration, remaining 100% compatible with existing uni-api configs.
+
+A minimal example `api.yaml`:
 
 ```yaml
 providers:
@@ -59,23 +48,30 @@ api_keys:
       - gpt-4o
 ```
 
-You can then start Zoaholic with uvicorn or Docker (example, assuming api.yaml is in the working directory):
+Run with Docker:
 
 ```bash
-uvicorn main:app --host 0.0.0.0 --port 8000
+docker run -d \
+  --name zoaholic \
+  -p 8000:8000 \
+  -v ./api.yaml:/home/api.yaml \
+  zoaholic:latest
 ```
 
-Or using docker-compose, point the container at /home/api.yaml and forward port 8000 (the actual compose file structure is up to your environment).
+Access the UI at `http://localhost:8000/`.
 
-Once running, open the web UI (served from the same host/port) in your browser to configure routing rules and test calls.
+## Architecture Overview
+
+- `core/dialects/`: The core transformation engine handling request/response translation between API protocols.
+- `core/channels/`: The registry for upstream provider adapters (AWS, Azure, Vertex, Cloudflare, etc.).
+- `core/plugins/` & `plugins/`: The interceptor-based plugin engine.
+- `frontend/`: Standalone React application that mounts statically via FastAPI.
 
 ## Relationship to uni-api
 
-Zoaholic is a downstream project and would not exist without uni-api. The core routing logic, configuration format, and many design ideas come directly from uni-api.
+Zoaholic is a downstream project of uni-api. The core routing logic (`core/routing.py`) and handler architecture come directly from uni-api.
 
-If you need the original, fully documented upstream project, please visit:
-
+If you need the original upstream project, please visit:
 - GitHub: https://github.com/yym68686/uni-api
-- Docker image: yym68686/uni-api:latest
 
-Zoaholic simply adds a small UI layer and some opinionated defaults on top of this solid foundation.
+Zoaholic builds upon this solid foundation to add Multi-dialect routing, a Plugin engine, and a React GUI.

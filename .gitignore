@@ -21,3 +21,4 @@ postgres_data/
 alembic/
 alembic.ini
 plugins/secret_plugins/
+static/
