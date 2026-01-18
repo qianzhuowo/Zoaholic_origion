@@ -180,8 +180,9 @@ async def process_request(
             current_info["upstream_request_headers"] = json.dumps(safe_upstream_headers, ensure_ascii=False)
             
             # 使用深度截断，保留结构同时限制大小
+            # 使用 asyncio.to_thread 避免大请求体阻塞事件循环
             upstream_payload = {k: v for k, v in payload.items() if k != 'file'}
-            current_info["upstream_request_body"] = truncate_for_logging(upstream_payload)
+            current_info["upstream_request_body"] = await asyncio.to_thread(truncate_for_logging, upstream_payload)
         except Exception as e:
             logger.error(f"Error saving upstream request data: {str(e)}")
     # 确保日志中一定记录模型名（使用当前请求对象上的 model）
@@ -308,7 +309,7 @@ async def _fetch_passthrough_stream(client, url, headers, payload, timeout):
     stream_timeout = httpx.Timeout(
         connect=15.0,
         read=None,  # 无限等待读取，支持 Google Search 等长时间操作
-        write=60.0,
+        write=300.0,  # 写入超时300秒，支持大型请求体（多图片/PDF）
         pool=10.0,
     )
     
@@ -367,7 +368,7 @@ async def _fetch_passthrough_response(client, url, headers, payload, timeout):
     request_timeout = httpx.Timeout(
         connect=15.0,
         read=timeout,  # 使用传入的超时作为读取超时
-        write=60.0,
+        write=300.0,  # 写入超时300秒，支持大型请求体（多图片/PDF）
         pool=10.0,
     )
     
@@ -534,7 +535,8 @@ async def process_request_passthrough(
         }
         current_info["upstream_request_headers"] = json.dumps(safe_upstream_headers, ensure_ascii=False)
         upstream_payload = {k: v for k, v in payload.items() if k != "file"}
-        current_info["upstream_request_body"] = truncate_for_logging(upstream_payload)
+        # 使用 asyncio.to_thread 避免大请求体阻塞事件循环
+        current_info["upstream_request_body"] = await asyncio.to_thread(truncate_for_logging, upstream_payload)
 
     if getattr(request, "model", None):
         current_info["model"] = request.model
@@ -877,7 +879,6 @@ class ModelRequestHandler:
                     if "StreamReset" in error_str or "stream_id" in error_str:
                         try:
                             # 从 provider 的 base_url 提取 host 并重置连接
-                            from urllib.parse import urlparse
                             base_url = provider.get('base_url', '')
                             if base_url:
                                 host = urlparse(base_url).netloc

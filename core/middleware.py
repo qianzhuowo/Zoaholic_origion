@@ -292,7 +292,8 @@ class StatsMiddleware:
 
             if body_bytes:
                 try:
-                    parsed_body = json.loads(body_bytes)
+                    # 使用 asyncio.to_thread 避免大请求体阻塞事件循环
+                    parsed_body = await asyncio.to_thread(json.loads, body_bytes)
                 except json.JSONDecodeError:
                     parsed_body = None
 
@@ -309,8 +310,9 @@ class StatsMiddleware:
             current_info["request_headers"] = json.dumps(safe_headers, ensure_ascii=False)
             
             # 保存请求体（使用深度截断，保留结构同时限制大小）
+            # 使用 asyncio.to_thread 避免大请求体阻塞事件循环
             if body_bytes:
-                current_info["request_body"] = truncate_for_logging(body_bytes)
+                current_info["request_body"] = await asyncio.to_thread(truncate_for_logging, body_bytes)
             
             # 设置过期时间
             current_info["raw_data_expires_at"] = datetime.now(timezone.utc) + timedelta(hours=raw_data_retention_hours)

@@ -617,6 +617,32 @@ async def fetch_gemini_response(client, url, headers, payload, model, timeout):
         candidates_tokens = safe_get(usage_metadata, "candidatesTokenCount", default=candidatesTokenCount)
         total_tokens = safe_get(usage_metadata, "totalTokenCount", default=totalTokenCount)
 
+        # 检查是否返回了有效内容
+        has_content = content and content.strip()
+        has_reasoning = reasoning_content and reasoning_content.strip()
+        has_function_call = function_call_name is not None
+        has_image = image_base64 is not None
+        
+        is_image_model = "-image" in model.lower() or "image-generation" in model.lower()
+        
+        # 图像模型必须有图片
+        if is_image_model and not has_image:
+            yield {
+                "error": "Gemini image generation failed: no image was generated",
+                "status_code": 502,
+                "details": {"reason": "no_image_generated", "model": model}
+            }
+            return
+        
+        # 普通模型必须有内容
+        if not is_image_model and not has_content and not has_reasoning and not has_function_call:
+            yield {
+                "error": "Gemini returned empty response",
+                "status_code": 502,
+                "details": {"reason": "empty_response", "model": model}
+            }
+            return
+
         role = safe_get(first_resp, "candidates", 0, "content", "role")
         if role == "model":
             role = "assistant"

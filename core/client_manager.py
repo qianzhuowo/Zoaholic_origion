@@ -58,7 +58,7 @@ class ClientManager:
             timeout = httpx.Timeout(
                 connect=15.0,
                 read=None,  # 保持None，由各渠道自行控制超时
-                write=60.0,  # 写入超时增加到60秒
+                write=300.0,  # 写入超时增加到300秒（5分钟），支持大型请求体（多图片/PDF）
                 pool=10.0,  # 获取连接的超时（防止永久阻塞）
             )
             limits = httpx.Limits(

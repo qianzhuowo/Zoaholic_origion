@@ -197,10 +197,11 @@ class LoggingStreamingResponse(Response):
             yield chunk
         
         # 保存返回给用户的响应体（使用深度截断，保留结构同时限制大小）
+        # 使用 asyncio.to_thread 避免大响应体阻塞事件循环
         if should_save_response and response_chunks:
             try:
                 response_body = b"".join(response_chunks)
-                self.current_info["response_body"] = truncate_for_logging(response_body)
+                self.current_info["response_body"] = await asyncio.to_thread(truncate_for_logging, response_body)
             except Exception as e:
                 logger.error(f"Error saving response body: {str(e)}")
 
