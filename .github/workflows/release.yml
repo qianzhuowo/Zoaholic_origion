@@ -27,7 +27,7 @@ jobs:
       - name: Set up Python 3.10
         uses: actions/setup-python@v4
         with:
-          python-version: '3.10.12'
+          python-version: '3.10'
 
       - name: Install pex
         run: pip install pex
@@ -40,10 +40,10 @@ jobs:
         with:
           version: "0.8.0"
 
-      - name: Set up Python ${{ matrix.python-version }}
+      - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: ${{ matrix.python-version }}
+          python-version: '3.10'
 
       - name: Install dependencies with uv
         run: uv pip install -r pyproject.toml
@@ -62,7 +62,7 @@ jobs:
           pex -D . -r pyproject.toml \
           -c uvicorn \
           --inject-args 'main:app --host 0.0.0.0 --port 8000' \
-          --platform linux_x86_64-cp-3.10.12-cp310 \
+          --platform linux_x86_64-cp-3.10-cp310 \
           --interpreter-constraint '==3.10.*' \
           --no-strip-pex-env \
           -o zoaholic-linux-x86_64-${VERSION}.pex
