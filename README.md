@@ -83,6 +83,7 @@ docker run -d \
   --name zoaholic \
   -p 8000:8000 \
   -v ./api.yaml:/home/api.yaml \
+  -v ./data:/home/data \
   zoaholic:latest
 ```
 
