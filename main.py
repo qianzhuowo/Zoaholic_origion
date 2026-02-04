@@ -31,7 +31,7 @@ from core.error_response import openai_error_response
 
 from utils import safe_get, load_config
 
-from db import DISABLE_DATABASE, async_session, RequestStat
+from db import DISABLE_DATABASE, async_session, RequestStat, AdminUser
 from core.stats import (
     create_tables,
     update_paid_api_keys_states,
@@ -145,6 +145,22 @@ async def lifespan(app: FastAPI):
     cleanup_task = None
     if not DISABLE_DATABASE:
         await create_tables()
+
+        # 确保 JWT_SECRET 在进程启动后就已确定（避免后端热更新/重启导致前端旧 JWT 立刻 403）
+        # 规则：若未显式设置环境变量 JWT_SECRET，则使用 DB 中持久化的 admin_user.jwt_secret。
+        try:
+            from core.jwt_utils import set_jwt_secret
+
+            if not (os.getenv("JWT_SECRET") or "").strip():
+                if async_session is not None:
+                    async with async_session() as session:
+                        admin_user = await session.get(AdminUser, 1)
+
+                    if admin_user is not None and getattr(admin_user, "jwt_secret", None):
+                        set_jwt_secret(str(admin_user.jwt_secret))
+        except Exception as e:
+            logger.debug("JWT secret init skipped/failed: %s", e)
+
         cleanup_task = asyncio.create_task(cleanup_expired_raw_data())
         logger.info("Started raw data cleanup background task")
 
