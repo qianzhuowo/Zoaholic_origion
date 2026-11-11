@@ -47,7 +47,7 @@ export function ChannelEditor({ state }: ChannelEditorProps) {
     filteredFetchedModels, selectAllVisible, deselectAllVisible, confirmFetchModels, copyAllModels, getAliasMap, getModelDisplayName,
     formatJsonOnBlur, handleMappingChange, handleDeleteProvider, handleToggleProvider, handleCopyProvider, handleToggleSubChannel,
     handleDeleteSubChannel, openSubChannelEdit, buildSubChannelProvider, handleUpdateWeight, openTestDialog, openKeyTestDialog,
-    buildProviderSnapshotForTest, disableKeysInForm, handleSave, refreshOAuthAccounts, getProviderModelNames,
+    buildProviderSnapshotForTest, getProviderModelNameListForUi, disableKeysInForm, handleSave, refreshOAuthAccounts, getProviderModelNames,
     getProviderAnalyticsName, queryAllBalances, balanceResults, setBalanceResults, balanceLoading, focusedKeyIdx, setFocusedKeyIdx, forceListMode,
     setForceListMode, runtimeKeyStatus, localCountdowns, globalModelPrice, token, importPlaceholder, setImportModalIdx, setImportToken,
     setOauthManualState, setManualUrl, refreshKeyStatus,

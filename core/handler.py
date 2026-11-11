@@ -1032,7 +1032,7 @@ class ModelRequestHandler:
                     "key_enabled_plugins": _key_enabled_plugins,
                 }
 
-                if process_fn is process_request and _callable_accepts_keyword(process_fn, "dialect_id"):
+                if process_fn is process_request:
                     process_extra_kwargs["dialect_id"] = dialect_id
                 if process_fn is process_request_passthrough:
                     response = await process_fn(
