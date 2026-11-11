@@ -73,8 +73,13 @@ class FakeAsyncClient:
 
 
 @pytest.mark.asyncio
-async def test_antigravity_build_auth_url_uses_google_oauth_scopes():
-    from core.channels.antigravity_channel import DEFAULT_REDIRECT_URI, SCOPES, AntigravityProvider, CLIENT_ID
+async def test_antigravity_build_auth_url_uses_google_oauth_scopes(monkeypatch):
+    from core.channels import antigravity_channel as ag
+    from core.channels.antigravity_channel import DEFAULT_REDIRECT_URI, SCOPES, AntigravityProvider
+
+    # 凭据只来自环境变量（仓库不含明文），测试用固定替身值。
+    CLIENT_ID = "fixture-antigravity-client-id"
+    monkeypatch.setattr(ag, "CLIENT_ID", CLIENT_ID)
 
     provider = AntigravityProvider()
     auth_url, verifier = provider.build_auth_url("state-1", DEFAULT_REDIRECT_URI)
